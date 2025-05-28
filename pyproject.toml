@@ -1,0 +1,81 @@
+[project]
+name = "python_ray_tracer"
+version = "0.1.0"
+description = "A fast Python ray tracer"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-settings>=2.8.1",
+    "numpy>=2.2.4",
+    "pillow>=11.1.0",
+    "torch>=2.3.1",
+    "torchvision>=0.18.1",
+    "scikit-learn",
+    "pandas",
+    "plotly",
+    "nbformat>=4.2.0",
+    "matplotlib>=3.9.2",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+    "pre-commit>=4.1.0",
+    "pytest-cov>=6.0.0",
+    "pytest>=8.3.5",
+    "ruff>=0.9.9",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+# see all rules: https://docs.astral.sh/ruff/rules/
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "ISC", # flake8-implicit-str-concat
+  "ANN", # flake8-annotations
+  "I",   # isort
+  "D",   # pydocstyle. Note: docstring are not required, but when present they should be correct
+  "T10", # flake8-debugger
+  "T20", # flake8-print
+]
+
+ignore = [
+  "ANN204", #  Missing return type annotation for special method
+  "ANN002", #  Missing type annotation for *args
+  "ANN003", #  Missing type annotation for *kwargs
+  "ANN401", #  Dynamically typed expressions (typing.Any) are disallowed
+  "D100",   #  Missing docstring in public module
+  "D101",   #  Missing docstring in public class
+  "D102",   #  Missing docstring in public method
+  "D103",   #  Missing docstring in public function
+  "D104",   #  Missing docstring in public package
+  "D105",   #  Missing docstring in magic method
+  "D106",   #  Missing docstring in public nested class
+  "D107",   #  Missing docstring in `__init__`
+  "D205",   #  Blank line before description
+  "ISC001", #  single-line-implicit-string-concatenation (conflict with formatter)
+]
+
+unfixable = [
+  "F401", # unused-import
+  "F841", # unused-variable
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+mypy-init-return = true
+suppress-dummy-args = true
+
+[tool.ruff.lint.isort]
+# isort can't find local imports if the path of the local packages are not relative from the root of the repo. In this case, packages need to be added here
+# see https://docs.astral.sh/ruff/settings/#isort-known-local-folder for more info
+#known-local-folder=
