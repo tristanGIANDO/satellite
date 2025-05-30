@@ -1,8 +1,8 @@
 # Model Training
 
-## Create a custom U-net
+## Create a custom U-Net
 
-A U-Net model is a type of convolutional neural network (CNN) designed specifically for image segmentation tasks.
+A U-Net model is a type of convolutional neural network designed specifically for image segmentation tasks.
 
 There are two main parts:
 
@@ -13,6 +13,8 @@ There are two main parts:
    Series of transposed convolutions (or upsampling) that increase resolution.
 
 The result is a binary mask. In our case, this will be the pixels that correspond to clouds.
+
+### Baseline (Simple U-net with 3 in_channels (R, G, B))
 
 Let's train with this:
 
@@ -50,18 +52,36 @@ SimpleUNet(
 )
 ```
 
-### Results
-
 Results for a first training of 10 epochs with only 100 images:
 
 ![training_10_epochs](images/training_10_epochs_0.png)
-![training_10_epochs](images/training_10_epochs_1.png)
 ![training_10_epochs](images/training_10_epochs_2.png)
 
 Results for a second training of 9 epochs with 4200 images:
 
 ![training_9_epochs_4200_images](images/training_subset4200_epoch9_0.png)
-![training_9_epochs_4200_images](images/training_subset4200_epoch9_1.png)
-![training_9_epochs_4200_images](images/training_subset4200_epoch9_2.png)
-![training_9_epochs_4200_images](images/training_subset4200_epoch9_3.png)
 ![training_9_epochs_4200_images](images/training_subset4200_epoch9_4.png)
+
+This very first model doesn't do too badly, although unfortunately, due to an error in the pipeline, I have to abandon it.
+
+In addition, it was only based on the R, G, B layers. I had assumed that Sentinel-2 data would be quite difficult to retrieve, so I wouldn't have the NIR (near infrared) layer.
+However, it was actually quite simple, so I redid the whole thing.
+
+### U-net with 4 in_channels (R, G, B, NIR)
+
+This U-net is based on channels R, G, B, NIR.
+
+As we're dealing with binary segmentation (each pixel is classified as "cloudy" or "not cloudy"), we can use the `BCEWithLogitsLoss` loss function.
+This is a function that applies a sigmoid to the model output and then a Binary Cross-Entropy between the target and the ground truth.
+
+> Remember: the sigmoid is a symmetrical S-curve centered on 0.5, which crushes the extreme values. It is used to calculate probabilities between 0 and 1.
+> Binary Cross-Entropy measures the error between a predicted probability and an actual target value. The smaller the error, the better.
+
+#### First experiment
+
+![training_unet_v2_subset100_epoch10](images/training_unet_v2_subset100_epoch10_loss.png)
+![training_unet_v2_subset100_epoch10](images/training_unet_v2_subset100_epoch10_0.png)
+![training_unet_v2_subset100_epoch10](images/training_unet_v2_subset100_epoch10_1.png)
+
+I'm very surprised at the quality of the prediction, given that I've only given a subset of 100 lines (some of which are completely empty) out of 10 epochs.
+However, it's clear that he's still confusing snow-capped mountains with clouds.
