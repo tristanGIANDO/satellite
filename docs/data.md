@@ -1,6 +1,6 @@
-# Get and analyse satellite images
+# Data Preparation
 
-## Training dataset analysis
+## Download and analyse the training dataset
 
 From [this](https://www.kaggle.com/datasets/sorour/38cloud-cloud-segmentation-in-satellite-images) dataset, we create a CSV dataset containing the paths of all files downloaded locally (8400 lines).
 
