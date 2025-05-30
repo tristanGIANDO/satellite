@@ -36,12 +36,12 @@ Ce sont des images en JPEG2000, nous devons donc utiliser `rasterio` plutôt que
 - Support NIR, SWIR, bandes 16-bit+ alors que `Pillow` est limité à 8-bit
 - Interopérabilité SIG (QGIS, GDAL)
 
-|channel|sentinel code|
-|-|-|
-|R|B04|
-|G|B03|
-|B|B02|
-|NIR|B08|
+| channel | sentinel code |
+| ------- | ------------- |
+| R       | B04           |
+| G       | B03           |
+| B       | B02           |
+| NIR     | B08           |
 
 ![sentinel_raw_data_0](images/sentinel_raw_data_0.png)
 ![sentinel_raw_data_0](images/sentinel_raw_data_1.png)
