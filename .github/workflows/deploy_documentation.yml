@@ -18,13 +18,17 @@ jobs:
 
       - run: pip install mkdocs mkdocs-material
 
-      - name: Configure Git with token
+      - name: Build site
+        run: mkdocs build
+
+      - name: Deploy to GitHub Pages manually
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}
-
-      - name: Build and Deploy
-        run: |
-          mkdocs build
-          mkdocs gh-deploy --force --remote-name origin
+          cd site
+          git init
+          git remote add origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}
+          git checkout -b gh-pages
+          git add .
+          git commit -m "Deploy MkDocs site"
+          git push --force origin gh-pages
