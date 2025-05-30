@@ -1,0 +1,35 @@
+site_name: Satellite Exploration and Analysis Tools
+site_description: A collection of tools for satellite data exploration and analysis.
+
+theme:
+  name: readthedocs
+  palette:
+    primary: indigo
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_if_no_docstring: true
+            show_source: true
+            show_root_heading: false
+            show_root_toc_entry: false
+            group_by_category: true
+            show_category_heading: true
+            separate_signature: true
+            show_signature_annotations: true
+            show_submodules: true
+            line_length: 120

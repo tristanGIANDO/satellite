@@ -13,7 +13,8 @@ class CloudSegmentationDataset:
 
         This method scans the specified root directory for image files and organizes them into a list of dictionaries.
         Each dictionary contains paths to the red, green, blue, near-infrared (NIR), and ground truth (GT) images.
-        The directory structure is expected to follow a specific format based on whether the dataset is for training or testing.
+        The directory structure is expected to follow a specific format based on whether the dataset is for training
+        or testing.
         The expected directory structure is as follows:
         - For training dataset:
             - images_root_directory/38-Cloud_training/train_red/
