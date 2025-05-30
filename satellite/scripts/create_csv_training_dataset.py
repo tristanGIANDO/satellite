@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import rasterio
+from PIL import Image
 
 from satellite.domain.models import CloudSegmentationDataset
 
@@ -19,6 +22,18 @@ def create_csv_training_dataset(
 
     df = pd.DataFrame(dataset.files)
 
+    # Check if there is at least one pixel > 0 in any "red" image using rasterio
+
+    def has_nonzero_pixel(image_path: str) -> bool:
+        with rasterio.open(images_root_directory / image_path) as src:
+            arr = src.read(1)  # Read the first band (assumed to be red)
+        return bool(np.any(arr > 0.5))
+
+    df["has_nonzero_red_pixel"] = df["red"].apply(has_nonzero_pixel)
+    if not df["has_nonzero_red_pixel"].any():
+        raise ValueError("No 'red' image contains a pixel > 0.")
+    df = df.drop(columns=["has_nonzero_red_pixel"])
+
     csv_file_path.parent.mkdir(parents=True, exist_ok=True)
     if csv_file_path.exists():
         csv_file_path.unlink()
@@ -29,6 +44,6 @@ def create_csv_training_dataset(
 if __name__ == "__main__":
     create_csv_training_dataset(
         Path(r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data"),
-        Path("data/cloud_segmentation_dataset.csv"),
+        Path("data/cloud_segmentation_dataset_filtered.csv"),
         is_training_dataset=True,
     )

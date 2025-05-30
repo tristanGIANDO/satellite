@@ -25,7 +25,7 @@ These are JPEG2000 images, so we need to use `rasterio` rather than `Pillow`.
 `rasterio` is designed for :
 
 - GeoTIFF / JP2 reading
-- Geospatial metadata (CRS, bbox), access to coordinates, UTM, - projection, not `Pillow`.
+- Geospatial metadata (CRS, bbox), access to coordinates, UTM, not `Pillow`.
 - Multi-band images (e.g.: 13 bands) handles band stacks perfectly, `Pillow` only understands RGB / L / P
 - Support for NIR, SWIR, 16-bit+ bands, whereas `Pillow` is limited to 8-bit
 - GIS interoperability (QGIS, GDAL)
@@ -37,5 +37,10 @@ These are JPEG2000 images, so we need to use `rasterio` rather than `Pillow`.
 | B | B02 |
 | NIR | B08 |
 
+Each Sentinel shot (“tile”) can be found thanks to an ID that depends on latitude and longitude (see examples of tiles below).
+
+![sentinel_tiles_ref](images/sentinel_tiles_ref.png)
+
+These are some examples of B04, B03, B02, B08 channels for 2 tiles:
 ![sentinel_raw_data_0](images/sentinel_raw_data_0.png)
 ![sentinel_raw_data_0](images/sentinel_raw_data_1.png)
