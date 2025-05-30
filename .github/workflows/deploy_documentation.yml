@@ -8,14 +8,23 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - run: pip install mkdocs mkdocs-material
-      - run: |
-            mkdocs build
-            mkdocs gh-deploy --force  --remote-name origin
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Configure Git with token
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}
+
+      - name: Build and Deploy
+        run: |
+          mkdocs build
+          mkdocs gh-deploy --force --remote-name origin
