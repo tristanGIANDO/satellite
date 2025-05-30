@@ -16,4 +16,6 @@ jobs:
       - run: pip install mkdocs mkdocs-material
       - run: |
             mkdocs build
-            mkdocs gh-deploy --force
+            mkdocs gh-deploy --force  --remote-name origin
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
