@@ -4,6 +4,10 @@ site_author: Tristan Giandoriggio
 
 theme:
   name: material
+  palette:
+    primary: green
+  favicon: images/logo.png
+  logo: images/logo.png
 
 nav:
   - Overview: index.md

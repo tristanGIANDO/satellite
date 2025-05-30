@@ -30,16 +30,17 @@ class CloudSegmentationDataset:
             - images_root_directory/38-Cloud_test/test_gt/
         """
         if is_training_dataset:
-            root = images_root_directory / "38-Cloud_training"
+            subfolder = "38-Cloud_training"
             prefix = "train"
         else:
-            root = images_root_directory / "38-Cloud_test"
+            subfolder = "38-Cloud_test"
             prefix = "test"
 
-        if not root.exists():
-            raise FileNotFoundError(f"Directory {root} does not exist.")
+        red_directory = images_root_directory / subfolder / f"{prefix}_red"
+        relative_path = Path(subfolder)
 
-        red_directory = root / f"{prefix}_red"
+        if not red_directory.exists():
+            raise FileNotFoundError(f"The directory {red_directory} does not exist.")
 
         files = []
         for file in red_directory.iterdir():
@@ -47,11 +48,11 @@ class CloudSegmentationDataset:
                 file_name = file.name
                 files.append(
                     {
-                        "red": red_directory / file_name,
-                        "green": root / f"{prefix}_green" / file_name.replace("red", "green"),
-                        "blue": root / f"{prefix}_blue" / file_name.replace("red", "blue"),
-                        "near_infrared": root / f"{prefix}_nir" / file_name.replace("red", "nir"),
-                        "target": root / f"{prefix}_gt" / file_name.replace("red", "gt"),
+                        "red": relative_path / f"{prefix}_red" / file_name,
+                        "green": relative_path / f"{prefix}_green" / file_name.replace("red", "green"),
+                        "blue": relative_path / f"{prefix}_blue" / file_name.replace("red", "blue"),
+                        "near_infrared": relative_path / f"{prefix}_nir" / file_name.replace("red", "nir"),
+                        "target": relative_path / f"{prefix}_gt" / file_name.replace("red", "gt"),
                     }
                 )
 
