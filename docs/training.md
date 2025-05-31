@@ -85,3 +85,12 @@ This is a function that applies a sigmoid to the model output and then a Binary 
 
 I'm very surprised at the quality of the prediction, given that I've only given a subset of 100 lines (some of which are completely empty) out of 10 epochs.
 However, it's clear that he's still confusing snow-capped mountains with clouds.
+
+#### Second experiment
+
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_loss.png)
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_0.png)
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_1.png)
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_2.png)
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_3.png)
+![training_unet_v2_subset4000_epoch20](images/training_unet_v2_subset4000_epoch20_4.png)
