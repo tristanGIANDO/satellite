@@ -17,9 +17,13 @@ We have to split it into small squares and then give it to the model.
 The predicted mask for a tile at different dates:
 
 ![inference_mask](images/inference_mask_0.png)
-![inference_mask](images/inference_mask_1.png)
 
 The goal is now to keep the cloudless subtiles only.
+
+## Filter tiles
+
+![rgba_composite](images/rgba_composite_0_mask.jpg)
+![rgba_composite](images/rgba_composite_0.jpg)
 
 ## Create the mosaic
 
