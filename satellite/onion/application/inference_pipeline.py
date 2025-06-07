@@ -35,7 +35,6 @@ def run_inference_pipeline(model_path, sentinel_images):
         for tile in grid.tiles:
             logger.info(f"Processing tile index: {tile.index}")
             if remaining_tile_indices is None or tile.index in remaining_tile_indices:
-                logger.info(f"Tile {tile.index} is valid for processing")
                 pred = model(torch.from_numpy(tile.data).permute(2, 0, 1).unsqueeze(0)).squeeze()
                 final_mask_tiles[tile.index] = np.array(
                     [
@@ -48,7 +47,6 @@ def run_inference_pipeline(model_path, sentinel_images):
                     logger.info(f"Tile {tile.index} is cloudy, skipping RGB addition")
                     continue
 
-                logger.info(f"Tile {tile.index} is added to RGB")
                 final_rgb_tiles[tile.index] = tile.data[..., :3]
 
         remaining_tile_indices = get_remaining_indices(grid, final_rgb_tiles)

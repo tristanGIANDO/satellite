@@ -23,16 +23,10 @@ if __name__ == "__main__":
     model_path = "satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth"
     image_paths = [
         (
-            "data/lambda_red.tif",
-            "data/lambda_green.tif",
-            "data/lambda_blue.tif",
-            "data/lambda_nir.tif",
-        ),
-        (
-            "data/lambda_red_2.tif",
-            "data/lambda_green_2.tif",
-            "data/lambda_blue_2.tif",
-            "data/lambda_nir_2.tif",
+            r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ\2025-05-14\31UDQ\red\B04.jp2",
+            r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ\2025-05-14\31UDQ\green\B03.jp2",
+            r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ\2025-05-14\31UDQ\blue\B02.jp2",
+            r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ\2025-05-14\31UDQ\nir\B08.jp2",
         ),
     ]
     logger.info("Starting inference pipeline...")
