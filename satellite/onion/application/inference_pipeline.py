@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -12,13 +13,16 @@ from satellite.onion.domain.mask_filter import is_tile_cloudy
 logger = logging.getLogger(__name__)
 
 
-def run_inference_pipeline(model_path, sentinel_images):
+def run_inference_pipeline(
+    model_path: Path, sentinel_images: list[tuple[Path, Path, Path, Path]]
+) -> tuple[np.ndarray, np.ndarray]:
     logger.info("Loading model from %s", model_path)
     model = load_unet_model(model_path)
     remaining_tile_indices = None
     final_rgb_tiles = {}
     final_mask_tiles = {}
 
+    grid = None
     for red_path, green_path, blue_path, nir_path in sentinel_images:
         logger.info(f"Processing image: {red_path}, {green_path}, {blue_path}, {nir_path}")
         r = load_band_image(red_path)
@@ -30,7 +34,6 @@ def run_inference_pipeline(model_path, sentinel_images):
 
         grid = split_image_into_tiles(stacked)
         logger.info(f"Split image into {len(grid.tiles)} tiles of size {grid.tile_size}")
-        predictions = []
 
         for tile in grid.tiles:
             logger.info(f"Processing tile index: {tile.index}")
@@ -50,6 +53,9 @@ def run_inference_pipeline(model_path, sentinel_images):
                 final_rgb_tiles[tile.index] = tile.data[..., :3]
 
         remaining_tile_indices = get_remaining_indices(grid, final_rgb_tiles)
+
+    if grid is None:
+        raise ValueError("No tiles were processed. Please check the input images.")
 
     return reconstruct_image(final_rgb_tiles, grid.width, grid.height, grid.tile_size), reconstruct_image(
         final_mask_tiles, grid.width, grid.height, grid.tile_size

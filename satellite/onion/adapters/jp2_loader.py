@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 import rasterio
 
 
-def load_band_image(path: str) -> np.ndarray:
+def load_band_image(path: Path) -> np.ndarray:
     with rasterio.open(path) as src:
         band = src.read(1).astype(np.float32)
 

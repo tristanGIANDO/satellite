@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -56,7 +58,7 @@ class UNet(nn.Module):
         return self.final(x5)  # (B, 1, H, W)
 
 
-def load_unet_model(path):
+def load_unet_model(path: Path) -> UNet:
     model = UNet()
     model.load_state_dict(torch.load(path, map_location="cpu"))
     model.eval()
