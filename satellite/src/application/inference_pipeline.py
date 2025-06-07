@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from satellite.src.adapters.jp2_loader import load_band_image
+from satellite.src.adapters.jp2_loader import gray_world_balance, load_band_image
 from satellite.src.adapters.tiler_adapter import split_image_into_tiles
 from satellite.src.domain.image_stitcher import get_remaining_indices, reconstruct_image
 from satellite.src.domain.mask_filter import is_tile_cloudy
@@ -21,6 +21,7 @@ def run_inference_pipeline(
     remaining_tile_indices = None
     final_rgb_tiles = {}
     final_mask_tiles = {}
+    used_images = set()
 
     grid = None
     for red_path, green_path, blue_path, nir_path in sentinel_images:
@@ -30,6 +31,8 @@ def run_inference_pipeline(
         b = load_band_image(blue_path)
         n = load_band_image(nir_path)
         stacked = np.stack([r, g, b, n], axis=-1)
+
+        stacked = gray_world_balance(stacked)
         logger.info(f"Stacked image shape: {stacked.shape}")
 
         grid = split_image_into_tiles(stacked)
@@ -52,11 +55,19 @@ def run_inference_pipeline(
 
                 final_rgb_tiles[tile.index] = tile.data[..., :3]
 
+                if red_path not in used_images:
+                    used_images.add(red_path)
+
         remaining_tile_indices = get_remaining_indices(grid, final_rgb_tiles)
+        if not remaining_tile_indices:
+            logger.info("All tiles processed, no remaining tiles to process.")
+            break
 
     if grid is None:
         raise ValueError("No tiles were processed. Please check the input images.")
 
-    return reconstruct_image(final_rgb_tiles, grid.width, grid.height, grid.tile_size), reconstruct_image(
-        final_mask_tiles, grid.width, grid.height, grid.tile_size
+    return (
+        reconstruct_image(final_rgb_tiles, grid.width, grid.height, grid.tile_size),
+        reconstruct_image(final_mask_tiles, grid.width, grid.height, grid.tile_size),
+        used_images,
     )

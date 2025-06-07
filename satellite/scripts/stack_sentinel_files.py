@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from satellite.src.application.inference_pipeline import run_inference_pipeline
+from satellite.src.application.previsualisation_pipeline import stack_sentinel_images_as_RGB
 from satellite.src.infrastructure.image_saver import save_image
 from satellite.src.infrastructure.sentinel import get_date_from_path, get_image_paths_between_dates
 
@@ -15,7 +15,7 @@ def setup_logging() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler("inference_pipeline.log", mode="w"),
+            logging.FileHandler("stacking_pipeline.log", mode="w"),
         ],
     )
 
@@ -23,23 +23,22 @@ def setup_logging() -> None:
 setup_logging()
 
 if __name__ == "__main__":
-    model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path(
         r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ"
     )
 
     image_paths = get_image_paths_between_dates(
-        datetime(2025, 5, 1), datetime(2025, 5, 31), images_root_directory, "31UDQ"
+        datetime(2025, 5, 14), datetime(2025, 5, 16), images_root_directory, "31UDQ"
     )
     if not image_paths:
         raise ValueError("No images found for the specified date range and image code.")
 
-    logger.info("Starting inference pipeline...")
-    result, result_mask, used_images_paths = run_inference_pipeline(model_path, image_paths)
+    logger.info("Starting stacking pipeline...")
+    results, used_images_paths = stack_sentinel_images_as_RGB(image_paths)
 
-    logger.info("Inference completed. Saving result...")
-    save_image(result, Path("output/final_image"), format="png")
-    save_image(result_mask, Path("output/final_image_mask"), format="png")
+    logger.info("Stacking completed. Saving result...")
+    for result, used_image in zip(results, used_images_paths, strict=False):
+        datetime = get_date_from_path(used_image)
+        save_image(result, Path(f"output/raw_image_{str(datetime)}"), format="png")
 
-    used_datetimes = [get_date_from_path(path) for path in used_images_paths]
-    logger.info(f"Used dates: {used_datetimes}")
+    logger.info("All images saved successfully.")
