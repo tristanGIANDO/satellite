@@ -25,6 +25,5 @@ def get_image_paths_between_dates(
 
 
 def get_date_from_path(path: Path) -> datetime:
-    # Assuming the path format is like "2025-05-19/31UDQ/red/B04.jp2"
     date_str = path.parent.parent.parent.name
     return datetime.strptime(date_str, "%Y-%m-%d")
