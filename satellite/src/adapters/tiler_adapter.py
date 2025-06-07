@@ -1,4 +1,4 @@
-from satellite.onion.domain.tile import TileGrid
+from satellite.src.domain.tile import TileGrid
 
 
 def split_image_into_tiles(image, size: int = 256) -> TileGrid:

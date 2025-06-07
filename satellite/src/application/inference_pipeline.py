@@ -3,12 +3,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from infrastructure.model_loader import load_unet_model
 
-from satellite.onion.adapters.jp2_loader import load_band_image
-from satellite.onion.adapters.tiler_adapter import split_image_into_tiles
-from satellite.onion.domain.image_stitcher import get_remaining_indices, reconstruct_image
-from satellite.onion.domain.mask_filter import is_tile_cloudy
+from satellite.src.adapters.jp2_loader import load_band_image
+from satellite.src.adapters.tiler_adapter import split_image_into_tiles
+from satellite.src.domain.image_stitcher import get_remaining_indices, reconstruct_image
+from satellite.src.domain.mask_filter import is_tile_cloudy
+from satellite.src.infrastructure.model import load_unet_model
 
 logger = logging.getLogger(__name__)
 

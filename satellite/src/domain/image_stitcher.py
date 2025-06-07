@@ -1,6 +1,6 @@
 import numpy as np
 
-from satellite.onion.domain.tile import TileGrid
+from satellite.src.domain.tile import TileGrid
 
 
 def reconstruct_image(tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:

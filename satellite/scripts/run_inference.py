@@ -1,8 +1,8 @@
 import logging
 from pathlib import Path
 
-from satellite.onion.application.inference_pipeline import run_inference_pipeline
-from satellite.onion.infrastructure.image_saver import save_image
+from satellite.src.application.inference_pipeline import run_inference_pipeline
+from satellite.src.infrastructure.image_saver import save_image
 
 logger = logging.getLogger(__name__)
 
