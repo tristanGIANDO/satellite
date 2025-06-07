@@ -160,3 +160,6 @@ cython_debug/
 #.idea/
 
 satellite/exploration/results/
+output/
+node_modules/
+data/
