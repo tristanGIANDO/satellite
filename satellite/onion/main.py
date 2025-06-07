@@ -23,14 +23,21 @@ if __name__ == "__main__":
     model_path = "satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth"
     image_paths = [
         (
-            "data/red_patch_27_2_by_6_LC08_L1TP_032030_20160420_20170223_01_T1.TIF",
-            "data/green_patch_27_2_by_6_LC08_L1TP_032030_20160420_20170223_01_T1.TIF",
-            "data/blue_patch_27_2_by_6_LC08_L1TP_032030_20160420_20170223_01_T1.TIF",
-            "data/nir_patch_27_2_by_6_LC08_L1TP_032030_20160420_20170223_01_T1.TIF",
+            "data/lambda_red.tif",
+            "data/lambda_green.tif",
+            "data/lambda_blue.tif",
+            "data/lambda_nir.tif",
+        ),
+        (
+            "data/lambda_red_2.tif",
+            "data/lambda_green_2.tif",
+            "data/lambda_blue_2.tif",
+            "data/lambda_nir_2.tif",
         ),
     ]
     logger.info("Starting inference pipeline...")
-    result = run_inference_pipeline(model_path, image_paths)
+    result, result_mask = run_inference_pipeline(model_path, image_paths)
 
     logger.info("Inference completed. Saving result...")
     save_image(result, "output/final_image", format="png")
+    save_image(result_mask, "output/final_image_mask", format="png")
