@@ -35,24 +35,18 @@ if __name__ == "__main__":
     #     raise ValueError("No images found for the specified date range and image code.")
     image_paths = [
         (
-            images_root_directory / "2025-05-26" / "31UDQ" / "red" / "B04.jp2",
-            images_root_directory / "2025-05-26" / "31UDQ" / "green" / "B03.jp2",
-            images_root_directory / "2025-05-26" / "31UDQ" / "blue" / "B02.jp2",
-            images_root_directory / "2025-05-26" / "31UDQ" / "nir" / "B08.jp2",
-        ),
-        (
-            images_root_directory / "2025-05-02" / "31UDQ" / "red" / "B04.jp2",
-            images_root_directory / "2025-05-02" / "31UDQ" / "green" / "B03.jp2",
-            images_root_directory / "2025-05-02" / "31UDQ" / "blue" / "B02.jp2",
-            images_root_directory / "2025-05-02" / "31UDQ" / "nir" / "B08.jp2",
-        ),
+            images_root_directory / "2024-08-22" / "31UDQ" / "red" / "B04.jp2",
+            images_root_directory / "2024-08-22" / "31UDQ" / "green" / "B03.jp2",
+            images_root_directory / "2024-08-22" / "31UDQ" / "blue" / "B02.jp2",
+            images_root_directory / "2024-08-22" / "31UDQ" / "nir" / "B08.jp2",
+        )
     ]
+    image_paths += get_image_paths_between_dates(
+        datetime(2024, 8, 1), datetime(2024, 8, 31), images_root_directory, "31UDQ"
+    )
 
     logger.info("Starting inference pipeline...")
-    result, result_mask, used_images_paths = run_inference_pipeline(model_path, image_paths)
+    result, result_mask = run_inference_pipeline(model_path, image_paths)
 
     logger.info("Inference completed. Saving result...")
-    save_image(result, Path("output/final_image_202505_31UDQ"), format="png")
-
-    used_datetimes = [get_date_from_path(path) for path in used_images_paths]
-    logger.info(f"Used dates: {used_datetimes}")
+    save_image(result, Path("output/final_image_202408_31UDQ_0"), format="png")

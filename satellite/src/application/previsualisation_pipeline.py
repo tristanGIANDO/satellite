@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 def stack_sentinel_images_as_RGB(sentinel_images: list[tuple[Path, Path, Path, Path]]) -> None:
     for red_path, green_path, blue_path, _ in sentinel_images:
+        if not (red_path.exists() and green_path.exists() and blue_path.exists()):
+            logger.warning(f"Missing one or more band files for {red_path.parent.name}. Skipping.")
+            continue
         logger.info(f"Processing image: {red_path}")
         r = load_band_image(red_path)
         g = load_band_image(green_path)

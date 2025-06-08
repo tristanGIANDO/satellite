@@ -1,13 +1,14 @@
-import requests
-from pathlib import Path
 from datetime import date, timedelta
+from pathlib import Path
+
+import requests
 
 # Liste des dates et tuiles Sentinel-2 de la région parisienne
 # Générer toutes les dates du mois de mai 2025
 start_date = date(2025, 5, 1)
 end_date = date(2025, 5, 31)
 dates = [(start_date + timedelta(days=i)).isoformat() for i in range((end_date - start_date).days + 1)]
-tiles = ["31UDQ"]
+tiles = ["31TEJ"]
 
 bands = {"red": "B04.jp2", "green": "B03.jp2", "blue": "B02.jp2", "nir": "B08.jp2"}
 
@@ -22,7 +23,9 @@ def build_url(tile_code: str, date: str, band_file: str) -> str:
 
 
 # Dossier racine
-root_dir = Path(r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31UDQ")
+root_dir = Path(r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31TEJ")
+# Créer le dossier racine s'il n'existe pas
+root_dir.mkdir(parents=True, exist_ok=True)
 
 for date in dates:
     for tile in tiles:

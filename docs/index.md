@@ -7,7 +7,7 @@ I'm Tristan and I'm doing this project to learn how to use satellite images and 
 * This is my first experience with PyTorch (I was using Tensorflow)
 * First experience with real satellite data (Sentinel-2)
 
-![mosaic](images/mosaic-3.png)
+![mosaic](images/cover.png)
   
 ## Pipeline
 

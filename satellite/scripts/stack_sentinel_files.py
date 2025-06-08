@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def setup_logging() -> None:
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     )
 
     image_paths = get_image_paths_between_dates(
-        datetime(2025, 5, 1), datetime(2025, 5, 31), images_root_directory, "31UDQ"
+        datetime(2024, 8, 1), datetime(2024, 8, 31), images_root_directory, "31UDQ"
     )
     if not image_paths:
         raise ValueError("No images found for the specified date range and image code.")
