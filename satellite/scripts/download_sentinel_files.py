@@ -1,51 +1,31 @@
-from datetime import date, timedelta
+import logging
+from datetime import date
 from pathlib import Path
 
-import requests
+from satellite.src.infrastructure.sentinel import download_timerange_bands, generate_preview
 
-# Liste des dates et tuiles Sentinel-2 de la région parisienne
-# Générer toutes les dates du mois de mai 2025
-start_date = date(2025, 5, 1)
-end_date = date(2025, 5, 31)
-dates = [(start_date + timedelta(days=i)).isoformat() for i in range((end_date - start_date).days + 1)]
-tiles = ["31TEJ"]
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("download_sentinel_files.log", mode="w"),
+    ],
+)
 
-bands = {"red": "B04.jp2", "green": "B03.jp2", "blue": "B02.jp2", "nir": "B08.jp2"}
-
-
-# Fonction pour construire l'URL Sentinel-2 AWS
-def build_url(tile_code: str, date: str, band_file: str) -> str:
-    utm_zone = tile_code[:2]
-    lat_band = tile_code[2]
-    grid_square = tile_code[3:]
-    year, month, day = date.split("-")
-    return f"https://sentinel-s2-l1c.s3.amazonaws.com/tiles/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{band_file}"
+logger = logging.getLogger(__name__)
 
 
-# Dossier racine
-root_dir = Path(r"C:\Users\giand\OneDrive\Documents\__packages__\_perso\satellite_data\sentinel2-31TEJ")
-# Créer le dossier racine s'il n'existe pas
-root_dir.mkdir(parents=True, exist_ok=True)
+if __name__ == "__main__":
+    start_date = date(2025, 5, 1)
+    end_date = date(2025, 5, 4)
+    tiles = ["33WXT"]
 
-for date in dates:
-    for tile in tiles:
-        for band, band_file in bands.items():
-            url = build_url(tile, date, band_file)
-            output_dir = root_dir / date / tile / band
-            output_dir.mkdir(parents=True, exist_ok=True)
-            output_path = output_dir / band_file
+    downloaded_bands = download_timerange_bands(
+        start_date=start_date,
+        end_date=end_date,
+        tiles=tiles,
+        output_directory=Path("satellite_data/sentinel2"),
+    )
 
-            if output_path.exists():
-                print(f"[✔] {output_path.name} déjà présent.")
-                continue
-
-            print(f"[↓] {output_path.name} ({tile} - {date})...")
-            try:
-                response = requests.get(url, stream=True, timeout=20)
-                response.raise_for_status()
-                with open(output_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print(f"[✓] Téléchargé : {output_path}")
-            except Exception as e:
-                print(f"[✗] Erreur : {url}\n  → {e}")
+    generate_preview(downloaded_bands)

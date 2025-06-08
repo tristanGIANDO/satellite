@@ -163,3 +163,4 @@ satellite/exploration/results/
 output/
 node_modules/
 data/
+satellite_data/
