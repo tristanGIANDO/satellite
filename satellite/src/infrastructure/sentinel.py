@@ -1,41 +1,55 @@
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 
-import numpy as np
 import requests
 from skimage.transform import resize
 
-from satellite.src.application.services import BandLoader
-from satellite.src.domain.band import BandFileNames
+from satellite.src.application.services import StackedImageService
+from satellite.src.domain.image import ImagePaths
 from satellite.src.infrastructure.image_saver import save_image
 
 logger = logging.getLogger(__name__)
 
 
-def get_bands() -> BandFileNames:
-    return BandFileNames(Path("B04.jp2"), Path("B03.jp2"), Path("B02.jp2"), Path("B08.jp2"))
+@dataclass
+class SentinelConfig:
+    database_url: str = "https://sentinel-s2-l1c.s3.amazonaws.com/tiles"
+    red: str = "B04.jp2"
+    green: str = "B03.jp2"
+    blue: str = "B02.jp2"
+    near_infrared: str = "B08.jp2"
 
 
-def build_download_band_url(tile_code: str, date: str, band: Path) -> str:
+class SentinelBandCodePreset(StrEnum):
+    PARIS = "31UDQ"
+    MONTPELLIER = "31TEJ"
+    TROMSO = "33WXT"
+    NEWYORK = "18TWL"
+    LYON = "31TFL"
+
+
+def build_download_band_url(tile_code: str, date: str, band_filename: str) -> str:
     utm_zone = tile_code[:2]
     lat_band = tile_code[2]
     grid_square = tile_code[3:]
     year, month, day = date.split("-")
-    return f"https://sentinel-s2-l1c.s3.amazonaws.com/tiles/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{str(band)}"
+    return f"{SentinelConfig.database_url}/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{band_filename}"
 
 
-def download_band(output_directory: Path, tile_code: str, date: str, band: Path) -> Path:
-    url = build_download_band_url(tile_code, date, band)
+def download_band(output_directory: Path, tile_code: str, date: str, band_filename: str) -> Path:
+    url = build_download_band_url(tile_code, date, band_filename)
     output_path = output_directory / date / tile_code
     output_path.mkdir(parents=True, exist_ok=True)
 
-    output_path = output_path / band
+    output_path = output_path / band_filename
     if output_path.exists():
         logger.info(f"{output_path.name} already exists.")
         return output_path
 
-    logger.info(f"Downloading ({tile_code} - {date} - {band})...")
+    logger.info(f"Downloading ({tile_code} - {date} - {band_filename})...")
     try:
         response = requests.get(url, stream=True, timeout=20)
         response.raise_for_status()
@@ -50,43 +64,45 @@ def download_band(output_directory: Path, tile_code: str, date: str, band: Path)
 
 
 def download_timerange_bands(
-    start_date: date, end_date: date, tiles: list[str], output_directory: Path
-) -> list[tuple[Path, Path, Path, Path]]:
-    bands = get_bands()
-
+    start_date: date, end_date: date, tiles: list[SentinelBandCodePreset], output_directory: Path
+) -> list[ImagePaths]:
     downloaded_bands = []
 
     for d in [(start_date + timedelta(days=i)).isoformat() for i in range((end_date - start_date).days + 1)]:
         for tile in tiles:
-            tile_bands_paths = ()
-            for band in [bands.red, bands.green, bands.blue, bands.nir]:
-                downloaded_band = download_band(output_directory, tile, d, band)
-                if not downloaded_band.exists():
-                    continue
-                tile_bands_paths += (downloaded_band,)
-            if len(tile_bands_paths) == 4:
-                downloaded_bands.append(tile_bands_paths)
+            r = download_band(output_directory, tile, d, SentinelConfig.red)
+            g = download_band(output_directory, tile, d, SentinelConfig.green)
+            b = download_band(output_directory, tile, d, SentinelConfig.blue)
+            n = download_band(output_directory, tile, d, SentinelConfig.near_infrared)
+            if not r.exists() or not g.exists() or not b.exists() or not n.exists():
+                logger.warning(f"Missing bands for tile {tile} on date {d}. Skipping this tile.")
+                continue
+
+            downloaded_bands.append(ImagePaths(r, g, b, n))
 
     return downloaded_bands
 
 
-def get_image_paths_between_dates(
-    start_date: datetime, end_date: datetime, reference_date: datetime, base_dir: Path, tile_code: str
-) -> list[tuple[Path, Path, Path, Path]]:
-    def get_bands_at_date(date: datetime, bands: BandFileNames) -> tuple[Path, Path, Path, Path] | None:
+def get_images_paths_from_dates(
+    start_date: datetime,
+    end_date: datetime,
+    reference_date: datetime,
+    base_dir: Path,
+    tile_code: SentinelBandCodePreset,
+) -> list[ImagePaths]:
+    def get_bands_at_date(date: datetime) -> ImagePaths | None:
         date_str = date.strftime("%Y-%m-%d")
         band_paths = (
-            base_dir / date_str / tile_code / bands.red,
-            base_dir / date_str / tile_code / bands.green,
-            base_dir / date_str / tile_code / bands.blue,
-            base_dir / date_str / tile_code / bands.nir,
+            base_dir / date_str / tile_code / SentinelConfig.red,
+            base_dir / date_str / tile_code / SentinelConfig.green,
+            base_dir / date_str / tile_code / SentinelConfig.blue,
+            base_dir / date_str / tile_code / SentinelConfig.near_infrared,
         )
 
         if all(path.exists() for path in band_paths):
-            return band_paths
+            return ImagePaths(*band_paths)
 
-    bands = get_bands()
-    reference_bands = get_bands_at_date(reference_date, bands)
+    reference_bands = get_bands_at_date(reference_date)
     if reference_bands is None:
         image_paths = []
     else:
@@ -95,7 +111,7 @@ def get_image_paths_between_dates(
     current_date = start_date
 
     while current_date <= end_date:
-        band_paths = get_bands_at_date(current_date, bands)
+        band_paths = get_bands_at_date(current_date)
 
         if band_paths is not None:
             image_paths.append(band_paths)
@@ -110,15 +126,13 @@ def get_date_from_path(path: Path) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
-def generate_preview(band_loader: BandLoader, downloaded_bands_paths: list[tuple[Path, Path, Path, Path]]) -> None:
-    for tile in downloaded_bands_paths:
-        r = band_loader.load_band_image(tile[0])
-        g = band_loader.load_band_image(tile[1])
-        b = band_loader.load_band_image(tile[2])
+def generate_preview(image_service: StackedImageService, downloaded_bands_paths: list[ImagePaths]) -> None:
+    for image_paths in downloaded_bands_paths:
+        stacked = image_service.load_and_stack(image_paths)
 
-        stacked = np.stack([r, g, b], axis=-1)
+        stacked = image_service.preprocess(stacked, None)
 
-        stacked = resize(stacked, (1000, 1000, 3), preserve_range=True, anti_aliasing=True).astype(stacked.dtype)
+        stacked = image_service.resize(stacked, (1000, 1000, stacked.shape[2]))
 
-        save_image(stacked, tile[0].parent / "preview", format="png")
-        logger.info(f"Saved preview for {tile[0]} as PNG.")
+        logger.info(f"Saving ({image_paths.red.parent.name} - {image_paths.red.parent.parent.name}) as PNG.")
+        image_service.save_as_rgb(stacked, image_paths.red.parent / "preview.png")

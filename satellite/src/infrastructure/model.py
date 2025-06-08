@@ -1,7 +1,11 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
+
+from satellite.src.application.services import ModelService
+from satellite.src.domain.tile import Tile
 
 
 class UNet(nn.Module):
@@ -58,8 +62,15 @@ class UNet(nn.Module):
         return self.final(x5)  # (B, 1, H, W)
 
 
-def load_unet_model(path: Path) -> UNet:
-    model = UNet()
-    model.load_state_dict(torch.load(path, map_location="cpu"))
-    model.eval()
-    return model
+class TorchModelService(ModelService):
+    def __init__(self, model_path: Path, device: str = "cpu") -> None:
+        self.model = self.load_model(model_path, device)
+
+    def load_model(self, path: Path, device: str) -> UNet:
+        model = UNet()
+        model.load_state_dict(torch.load(path, map_location=device))
+        model.eval()
+        return model
+
+    def predict(self, tile: Tile) -> np.ndarray:
+        return self.model(torch.from_numpy(tile.data).permute(2, 0, 1).unsqueeze(0)).squeeze().detach().numpy()

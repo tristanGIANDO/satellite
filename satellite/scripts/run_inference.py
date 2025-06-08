@@ -4,8 +4,9 @@ from pathlib import Path
 
 from satellite.src.application.pipelines import run_inference_pipeline
 from satellite.src.infrastructure.image_saver import save_image
-from satellite.src.infrastructure.jp2 import JP2BandLoader
-from satellite.src.infrastructure.sentinel import get_image_paths_between_dates
+from satellite.src.infrastructure.jp2 import JP2StackedImage
+from satellite.src.infrastructure.model import TorchModelService
+from satellite.src.infrastructure.sentinel import SentinelBandCodePreset, get_images_paths_from_dates
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,14 +25,14 @@ def main(
     end_date: datetime,
     reference_date: datetime,
     images_root_directory: Path,
-    tile_code: str,
+    tile_code: SentinelBandCodePreset,
     model_path: Path,
 ) -> None:
     logger.info(f"Fetching image paths for tile {tile_code} between {start_date} and {end_date}")
-    image_paths = get_image_paths_between_dates(start_date, end_date, reference_date, images_root_directory, tile_code)
+    image_paths = get_images_paths_from_dates(start_date, end_date, reference_date, images_root_directory, tile_code)
 
     logger.info("Starting inference pipeline...")
-    result, result_mask = run_inference_pipeline(model_path, image_paths, JP2BandLoader())
+    result = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), JP2StackedImage())
 
     logger.info("Inference completed. Saving result...")
     save_image(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}"), format="png")
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path("satellite_data/sentinel2")
 
-    tile_code = "18TWL"
+    tile_code = SentinelBandCodePreset.PARIS
     start_date = datetime(2025, 5, 19)
     end_date = datetime(2025, 5, 26)
     reference_date = datetime(2025, 5, 19)

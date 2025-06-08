@@ -3,38 +3,43 @@ from pathlib import Path
 
 import numpy as np
 
-from satellite.src.domain.tile import TileGrid
+from satellite.src.domain.image import ImagePaths
+from satellite.src.domain.tile import Tile, TileGrid
 
 
-class BandLoader(ABC):
+class ModelService(ABC):
     @abstractmethod
-    def load_band_image(self, path: Path) -> np.ndarray:
-        """Load a band image from the given path."""
+    def predict(self, tile: Tile) -> np.ndarray:
+        """Run the model prediction on the given image."""
         pass
 
 
-def split_image_into_tiles(image, size: int = 256) -> TileGrid:
-    return TileGrid.from_array(image, tile_size=size)
+class StackedImageService:
+    def load_and_stack(self, image_paths: ImagePaths) -> np.ndarray:
+        raise NotImplementedError("This method should be implemented in subclasses.")
 
+    def preprocess(self, stacked_image: np.ndarray, reference_image_paths: ImagePaths | None) -> np.ndarray:
+        """Preprocess the images by loading and stacking them."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
 
-def reconstruct_image(tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:
-    image = np.zeros((height, width, 4), dtype=np.float32)
-    for (i, j), tile in tiles_dict.items():
-        y, x = i * tile_size, j * tile_size
-        h, w = tile.shape[:2]
-        image[y : y + h, x : x + w, :3] = tile
-        image[y : y + h, x : x + w, 3] = 1.0  # Set alpha to 1 where tile is placed
-    return image
+    def postprocess(self, tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:
+        image = np.zeros((height, width, 4), dtype=np.float32)
+        for (i, j), tile in tiles_dict.items():
+            y, x = i * tile_size, j * tile_size
+            h, w = tile.shape[:2]
+            image[y : y + h, x : x + w, :3] = tile
+            image[y : y + h, x : x + w, 3] = 1.0  # Set alpha to 1 where tile is placed
+        return image
 
+    def split_image_into_tiles(self, image: np.ndarray, size: int = 256) -> TileGrid:
+        return TileGrid.from_array(image, tile_size=size)
 
-def get_remaining_indices(grid: TileGrid, filled_tiles: dict[tuple, np.ndarray]) -> list[tuple]:
-    return [tile.index for tile in grid.tiles if tile.index not in filled_tiles]
+    def get_remaining_indices(self, grid: TileGrid, filled_tiles: dict[tuple, np.ndarray]) -> list[tuple]:
+        return [tile.index for tile in grid.tiles if tile.index not in filled_tiles]
 
+    def resize(self, stacked_image: np.ndarray, size: tuple[int, int, int]) -> np.ndarray:
+        raise NotImplementedError("This method should be implemented in subclasses.")
 
-def gray_world_balance(stacked_image: np.ndarray) -> np.ndarray:
-    # img: [H, W, C] in float32
-    avg_per_channel = stacked_image.mean(axis=(0, 1))
-    gray_avg = avg_per_channel.mean()
-    scale = gray_avg / (avg_per_channel + 1e-6)
-
-    return np.clip(stacked_image * scale, 0, 1)
+    def save_as_rgb(self, stacked_image: np.ndarray, output_path: Path) -> None:
+        """Save the stacked image as an RGB image."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
