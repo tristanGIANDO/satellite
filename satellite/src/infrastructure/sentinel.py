@@ -5,11 +5,9 @@ from enum import StrEnum
 from pathlib import Path
 
 import requests
-from skimage.transform import resize
 
 from satellite.src.application.services import StackedImageService
 from satellite.src.domain.image import ImagePaths
-from satellite.src.infrastructure.image_saver import save_image
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +29,12 @@ class SentinelBandCodePreset(StrEnum):
     LYON = "31TFL"
 
 
-def build_download_band_url(tile_code: str, date: str, band_filename: str) -> str:
+def build_download_band_url(tile_code: str, date: str, band: str) -> str:
     utm_zone = tile_code[:2]
     lat_band = tile_code[2]
     grid_square = tile_code[3:]
     year, month, day = date.split("-")
-    return f"{SentinelConfig.database_url}/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{band_filename}"
+    return f"{SentinelConfig.database_url}/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{band}"
 
 
 def download_band(output_directory: Path, tile_code: str, date: str, band_filename: str) -> Path:

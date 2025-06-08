@@ -30,14 +30,14 @@ These are JPEG2000 images, so we need to use `rasterio` rather than `Pillow`.
 - Support for NIR, SWIR, 16-bit+ bands, whereas `Pillow` is limited to 8-bit
 - GIS interoperability (QGIS, GDAL)
 
-| channel | sentinel code |
-| ------- | ------------- |
-| R | B04 |
-| G | B03 |
-| B | B02 |
-| NIR | B08 |
+| channel       | sentinel code |
+| ------------- | ------------- |
+| R             | B04           |
+| G             | B03           |
+| B             | B02           |
+| Near Infrared | B08           |
 
-Each Sentinel shot (“tile”) can be found thanks to an ID that depends on latitude and longitude (see examples of tiles below).
+Each Sentinel image can be found thanks to an ID that depends on latitude and longitude (see examples of tiles below).
 
 ![sentinel_tiles_ref](images/sentinel_tiles_ref.png)
 

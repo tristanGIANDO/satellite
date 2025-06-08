@@ -15,7 +15,15 @@ logger = logging.getLogger(__name__)
 
 class JP2StackedImage(StackedImageService):
     def _gray_world_balance(self, stacked_image: np.ndarray) -> np.ndarray:
-        # img: [H, W, C] in float32
+        """Applies the Gray World color balance algorithm to a stacked image.
+        The Gray World algorithm assumes that the average color of a scene is gray,
+        and adjusts each channel so that their averages are equal, effectively correcting
+        color casts in the image.
+
+        Args:
+            stacked_image (np.ndarray): Input image array of shape [H, W, C] and dtype float32,
+                where H is height, W is width, and C is the number of channels.
+        """
         avg_per_channel = stacked_image.mean(axis=(0, 1))
         gray_avg = avg_per_channel.mean()
         scale = gray_avg / (avg_per_channel + 1e-6)
@@ -23,6 +31,11 @@ class JP2StackedImage(StackedImageService):
         return np.clip(stacked_image * scale, 0, 1)
 
     def _stretch(self, stacked_image: np.ndarray) -> np.ndarray:
+        """Applies contrast stretching to the input image using the 2nd and 98th percentiles.
+        This method rescales the pixel values of the input stacked image so that the 2nd percentile
+        maps to 0 and the 98th percentile maps to 1, with values outside this range clipped accordingly.
+        This enhances the contrast of the image by reducing the effect of outliers.
+        """
         stacked_image = stacked_image.astype(np.float32)
         minimum, maximum = np.percentile(stacked_image, (2, 98))
         stacked_image = np.clip((stacked_image - minimum) / (maximum - minimum), 0, 1)

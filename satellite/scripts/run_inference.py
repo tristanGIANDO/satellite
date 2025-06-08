@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 
 from satellite.src.application.pipelines import run_inference_pipeline
-from satellite.src.infrastructure.image_saver import save_image
 from satellite.src.infrastructure.jp2 import JP2StackedImage
 from satellite.src.infrastructure.model import TorchModelService
 from satellite.src.infrastructure.sentinel import SentinelBandCodePreset, get_images_paths_from_dates
@@ -31,11 +30,12 @@ def main(
     logger.info(f"Fetching image paths for tile {tile_code} between {start_date} and {end_date}")
     image_paths = get_images_paths_from_dates(start_date, end_date, reference_date, images_root_directory, tile_code)
 
+    image_service = JP2StackedImage()
     logger.info("Starting inference pipeline...")
-    result = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), JP2StackedImage())
+    result = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), image_service)
 
     logger.info("Inference completed. Saving result...")
-    save_image(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}"), format="png")
+    image_service.save_as_rgb(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}.png"))
 
 
 if __name__ == "__main__":
