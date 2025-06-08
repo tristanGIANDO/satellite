@@ -2,6 +2,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
+from satellite.src.infrastructure.jp2 import JP2BandLoader
 from satellite.src.infrastructure.sentinel import download_timerange_bands, generate_preview
 
 logging.basicConfig(
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     start_date = date(2025, 5, 1)
-    end_date = date(2025, 5, 4)
-    tiles = ["33WXT"]
+    end_date = date(2025, 5, 31)
+    tiles = ["18TWL"]
 
     downloaded_bands = download_timerange_bands(
         start_date=start_date,
@@ -28,4 +29,4 @@ if __name__ == "__main__":
         output_directory=Path("satellite_data/sentinel2"),
     )
 
-    generate_preview(downloaded_bands)
+    generate_preview(JP2BandLoader(), downloaded_bands)

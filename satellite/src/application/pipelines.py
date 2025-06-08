@@ -5,17 +5,45 @@ import numpy as np
 import torch
 from skimage.exposure import match_histograms
 
-from satellite.src.adapters.jp2_loader import gray_world_balance, load_band_image
-from satellite.src.adapters.tiler_adapter import split_image_into_tiles
-from satellite.src.domain.image_stitcher import get_remaining_indices, reconstruct_image
-from satellite.src.domain.mask_filter import is_tile_cloudy
+from satellite.src.application.services import (
+    BandLoader,
+    get_remaining_indices,
+    gray_world_balance,
+    reconstruct_image,
+    split_image_into_tiles,
+)
+from satellite.src.domain.tile import is_tile_cloudy
 from satellite.src.infrastructure.model import load_unet_model
 
 logger = logging.getLogger(__name__)
 
 
+def preprocessing_step(
+    band_loader: BandLoader,
+    images_paths: tuple[Path, Path, Path, Path],
+    reference_images_paths: tuple[Path, Path, Path, Path] | None,
+) -> np.ndarray:
+    """Preprocess the images by loading and stacking them."""
+    r = band_loader.load_band_image(images_paths[0])
+    g = band_loader.load_band_image(images_paths[1])
+    b = band_loader.load_band_image(images_paths[2])
+    n = band_loader.load_band_image(images_paths[3])
+
+    if reference_images_paths:
+        # Match histograms to the reference image
+        r = match_histograms(r, band_loader.load_band_image(reference_images_paths[0]))
+        g = match_histograms(g, band_loader.load_band_image(reference_images_paths[1]))
+        b = match_histograms(b, band_loader.load_band_image(reference_images_paths[2]))
+        n = match_histograms(n, band_loader.load_band_image(reference_images_paths[3]))
+
+    stacked = np.stack([r, g, b, n], axis=-1)
+    stacked = gray_world_balance(stacked)
+
+    return stacked
+
+
 def run_inference_pipeline(
-    model_path: Path, sentinel_images: list[tuple[Path, Path, Path, Path]]
+    model_path: Path, sentinel_images: list[tuple[Path, Path, Path, Path]], band_loader: BandLoader
 ) -> tuple[np.ndarray, np.ndarray]:
     logger.info("Loading model from %s", model_path)
     model = load_unet_model(model_path)
@@ -23,28 +51,15 @@ def run_inference_pipeline(
     final_rgb_tiles = {}
     final_mask_tiles = {}
 
-    # reference histogram
-    r_ref = load_band_image(sentinel_images[0][0])
-    g_ref = load_band_image(sentinel_images[0][1])
-    b_ref = load_band_image(sentinel_images[0][2])
-    n_ref = load_band_image(sentinel_images[0][3])
-
     grid = None
     for red_path, green_path, blue_path, nir_path in sentinel_images:
         logger.info(f"Processing image: {red_path}, {green_path}, {blue_path}, {nir_path}")
-        r = load_band_image(red_path)
-        g = load_band_image(green_path)
-        b = load_band_image(blue_path)
-        n = load_band_image(nir_path)
 
-        # Match histograms to the reference image
-        r = match_histograms(r, r_ref)
-        g = match_histograms(g, g_ref)
-        b = match_histograms(b, b_ref)
-        n = match_histograms(n, n_ref)
-
-        stacked = np.stack([r, g, b, n], axis=-1)
-        stacked = gray_world_balance(stacked)
+        stacked = preprocessing_step(
+            band_loader,
+            (red_path, green_path, blue_path, nir_path),
+            sentinel_images[0] if len(sentinel_images) > 1 else None,
+        )
 
         logger.info(f"Stacked image shape: {stacked.shape}")
 

@@ -6,8 +6,8 @@ import numpy as np
 import requests
 from skimage.transform import resize
 
-from satellite.src.adapters.jp2_loader import load_band_image
-from satellite.src.domain.tile import BandFileNames
+from satellite.src.application.services import BandLoader
+from satellite.src.domain.band import BandFileNames
 from satellite.src.infrastructure.image_saver import save_image
 
 logger = logging.getLogger(__name__)
@@ -110,11 +110,11 @@ def get_date_from_path(path: Path) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
-def generate_preview(downloaded_bands_paths: list[tuple[Path, Path, Path, Path]]) -> None:
+def generate_preview(band_loader: BandLoader, downloaded_bands_paths: list[tuple[Path, Path, Path, Path]]) -> None:
     for tile in downloaded_bands_paths:
-        r = load_band_image(tile[0])
-        g = load_band_image(tile[1])
-        b = load_band_image(tile[2])
+        r = band_loader.load_band_image(tile[0])
+        g = band_loader.load_band_image(tile[1])
+        b = band_loader.load_band_image(tile[2])
 
         stacked = np.stack([r, g, b], axis=-1)
 

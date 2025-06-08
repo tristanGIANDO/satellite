@@ -1,16 +1,7 @@
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Self
 
 import numpy as np
-
-
-@dataclass
-class BandFileNames:
-    red: Path
-    green: Path
-    blue: Path
-    nir: Path
 
 
 @dataclass
@@ -36,3 +27,18 @@ class TileGrid:
                 if tile.shape[0] == tile_size and tile.shape[1] == tile_size:
                     tiles.append(Tile(tile, (y // tile_size, x // tile_size)))
         return cls(tiles, w, h, tile_size)
+
+
+def is_tile_cloudy(mask: np.ndarray, white_threshold: float = 0.01, min_white_ratio: float = 0.01) -> bool:
+    """Returns True if at least 60% of the mask pixels are white (>= 0.3).
+
+    Args:
+        mask (np.ndarray): The input mask array.
+        white_threshold (float): Value from which a pixel is considered white.
+        min_white_ratio (float): Minimum ratio of white pixels required.
+
+    Returns:
+        bool: True if the mask has at least 60% white pixels, False otherwise.
+    """
+    white_pixels = np.count_nonzero(mask >= white_threshold)
+    return (white_pixels / mask.size) >= min_white_ratio
