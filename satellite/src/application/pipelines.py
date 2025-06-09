@@ -16,6 +16,7 @@ def run_inference_pipeline(
 ) -> np.ndarray:
     remaining_tile_indices = None
     output_RGB_tiles = {}
+    output_alpha_tiles = {}
 
     grid = None
     for image_paths in images_paths:
@@ -40,6 +41,7 @@ def run_inference_pipeline(
                     continue
 
                 output_RGB_tiles[tile.index] = tile.data[..., :3]
+                output_alpha_tiles[tile.index] = predicted_mask
 
         remaining_tile_indices = stacked_image_service.get_remaining_indices(grid, output_RGB_tiles)
         if not remaining_tile_indices:
@@ -49,4 +51,6 @@ def run_inference_pipeline(
     if grid is None:
         raise ValueError("No tiles were processed. Please check the input images.")
 
-    return stacked_image_service.postprocess(output_RGB_tiles, grid.width, grid.height, grid.tile_size)
+    return stacked_image_service.postprocess(
+        output_RGB_tiles, output_alpha_tiles, grid.width, grid.height, grid.tile_size
+    )
