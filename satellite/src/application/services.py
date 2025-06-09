@@ -36,7 +36,7 @@ class StackedImageService:
             y, x = i * tile_size, j * tile_size
             h, w = tile.shape[:2]
             image[y : y + h, x : x + w, :3] = tile
-            image[y : y + h, x : x + w, 3] = alpha.get((i, j), 1.0)  # Use reverted alpha
+            image[y : y + h, x : x + w, 3] = alpha.get((i, j))  # Use reverted alpha
         return image
 
     def split_image_into_tiles(self, image: np.ndarray, size: int = 256) -> TileGrid:
@@ -50,4 +50,8 @@ class StackedImageService:
 
     def save_as_rgb(self, stacked_image: np.ndarray, output_path: Path) -> None:
         """Save the stacked image as an RGB image."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def save_as_rgba(self, stacked_image: np.ndarray, output_path: Path) -> None:
+        """Save the stacked image as an RGBA image."""
         raise NotImplementedError("This method should be implemented in subclasses.")

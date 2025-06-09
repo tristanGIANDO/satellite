@@ -80,3 +80,16 @@ class JP2StackedImage(StackedImageService):
         rgb = stacked_image[..., :3]
         rgb_image = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
         Image.fromarray(rgb_image, mode="RGB").save(output_path)
+
+    def save_as_rgba(self, stacked_image: np.ndarray, output_path: Path) -> None:
+        """Save the RGBA part of the stacked image as a PNG file.
+
+        Args:
+            stacked_image: The stacked image array.
+            output_path: Path to save the PNG file.
+        """
+        if stacked_image.shape[2] < 4:
+            raise ValueError("Stacked image must have at least 4 channels for RGBA output.")
+        rgba = stacked_image[..., :4]
+        rgba_image = (np.clip(rgba, 0, 1) * 255).astype(np.uint8)
+        Image.fromarray(rgba_image, mode="RGBA").save(output_path)

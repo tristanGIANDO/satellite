@@ -73,4 +73,9 @@ class TorchModelService(ModelService):
         return model
 
     def predict(self, tile: Tile) -> np.ndarray:
-        return self.model(torch.from_numpy(tile.data).permute(2, 0, 1).unsqueeze(0)).squeeze().detach().numpy()
+        return (
+            self.model(torch.from_numpy(tile.data.astype(np.float32, copy=False)).permute(2, 0, 1).unsqueeze(0))
+            .squeeze()
+            .detach()
+            .numpy()
+        )

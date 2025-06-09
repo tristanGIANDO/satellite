@@ -109,6 +109,10 @@ def get_images_paths_from_dates(
     current_date = start_date
 
     while current_date <= end_date:
+        if current_date == reference_date:
+            current_date += timedelta(days=1)
+            continue
+
         band_paths = get_bands_at_date(current_date)
 
         if band_paths is not None:
