@@ -73,9 +73,16 @@ class TorchModelService(ModelService):
         return model
 
     def predict(self, tile: Tile) -> np.ndarray:
-        return (
+        output = (
             self.model(torch.from_numpy(tile.data.astype(np.float32, copy=False)).permute(2, 0, 1).unsqueeze(0))
             .squeeze()
             .detach()
             .numpy()
         )
+        min_val = output.min()
+        max_val = output.max()
+        if max_val > min_val:
+            output = (output - min_val) / (max_val - min_val)
+        else:
+            output = np.zeros_like(output)
+        return output

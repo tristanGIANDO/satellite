@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+from tqdm import tqdm
 
 from satellite.src.application.services import ModelService, StackedImageService
 from satellite.src.domain.image import ImagePaths
@@ -14,7 +15,7 @@ def run_inference_pipeline(
     model_service: ModelService,
     stacked_image_service: StackedImageService,
     value_to_consider_white_pixel: float = 0.01,
-    minimum_white_pixels_ratio: float = 0.01,
+    tile_size: int = 256,
 ) -> np.ndarray:
     remaining_tile_indices = None
     output_RGB_tiles = {}
@@ -30,22 +31,19 @@ def run_inference_pipeline(
             stacked_image, images_paths[0] if len(images_paths) > 1 else None
         )
 
-        grid = stacked_image_service.split_image_into_tiles(stacked_image)
+        grid = stacked_image_service.split_image_into_tiles(stacked_image, size=tile_size)
 
-        for tile in grid.tiles:
+        for tile in tqdm(grid.tiles, desc="Processing tiles", leave=False):
             if remaining_tile_indices is None or tile.index in remaining_tile_indices:
-                predicted_mask = model_service.predict(tile)
-                alpha = np.where(predicted_mask > value_to_consider_white_pixel, 1.0, 0.0).astype(np.float32)
-                if np.any(alpha != minimum_white_pixels_ratio):
-                    logger.info(f"Found clouds on {tile.index}")
-                # if is_tile_cloudy(predicted_mask, value_to_consider_white_pixel, minimum_white_pixels_ratio):
-                #     logger.info(f"Tile {tile.index} is cloudy, skipping RGB addition")
-                #     # alpha = (predicted_mask > value_to_consider_white_pixel).astype(np.uint8)
-                #     # output_alpha_tiles[tile.index] = alpha
-                #     continue
+                if np.mean(np.all(tile.data[..., :3] == 0, axis=-1)) > 0.3:
+                    continue
 
+                predicted_mask = model_service.predict(tile)
+                alpha = np.where(predicted_mask > value_to_consider_white_pixel, 0.0, 1.0).astype(np.float32)
+
+                predicted_mask = np.clip(predicted_mask, 0.0, 1.0)
                 output_RGB_tiles[tile.index] = tile.data[..., :3]
-                output_alpha_tiles[tile.index] = alpha
+                output_alpha_tiles[tile.index] = predicted_mask
 
         remaining_tile_indices = stacked_image_service.get_remaining_indices(grid, output_RGB_tiles)
         if not remaining_tile_indices:

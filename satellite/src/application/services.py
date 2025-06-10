@@ -31,12 +31,11 @@ class StackedImageService:
         tile_size: int,
     ) -> np.ndarray:
         image = np.zeros((height, width, 4), dtype=np.float32)
-        alpha = {k: 1.0 - v for k, v in alpha_dict.items()}
         for (i, j), tile in tiles_dict.items():
             y, x = i * tile_size, j * tile_size
             h, w = tile.shape[:2]
             image[y : y + h, x : x + w, :3] = tile
-            image[y : y + h, x : x + w, 3] = alpha.get((i, j))  # Use reverted alpha
+            image[y : y + h, x : x + w, 3] = alpha_dict.get((i, j))
         return image
 
     def split_image_into_tiles(self, image: np.ndarray, size: int = 256) -> TileGrid:

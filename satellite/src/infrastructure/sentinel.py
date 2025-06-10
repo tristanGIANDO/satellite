@@ -8,6 +8,7 @@ import requests
 
 from satellite.src.application.services import StackedImageService
 from satellite.src.domain.image import ImagePaths
+from satellite.src.infrastructure.jp2 import enhance_rgb_image
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +129,16 @@ def get_date_from_path(path: Path) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
-def generate_preview(image_service: StackedImageService, downloaded_bands_paths: list[ImagePaths]) -> None:
+def generate_preview(
+    image_service: StackedImageService, downloaded_bands_paths: list[ImagePaths], file_name: str = "preview.png"
+) -> None:
     for image_paths in downloaded_bands_paths:
         stacked = image_service.load_and_stack(image_paths)
-
-        stacked = image_service.preprocess(stacked, None)
+        stacked = (stacked - stacked.min()) / (stacked.max() - stacked.min())
+        stacked = enhance_rgb_image(stacked[..., 0], stacked[..., 1], stacked[..., 2])
+        # stacked = image_service.preprocess(stacked, None)
 
         stacked = image_service.resize(stacked, (1000, 1000, stacked.shape[2]))
 
         logger.info(f"Saving ({image_paths.red.parent.name} - {image_paths.red.parent.parent.name}) as PNG.")
-        image_service.save_as_rgb(stacked, image_paths.red.parent / "preview.png")
+        image_service.save_as_rgb(stacked, image_paths.red.parent / file_name)

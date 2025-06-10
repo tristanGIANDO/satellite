@@ -36,21 +36,23 @@ def main(
         image_paths,
         TorchModelService(model_path, "cpu"),
         image_service,
-        value_to_consider_white_pixel=5.0,
-        minimum_white_pixels_ratio=0.1,
+        value_to_consider_white_pixel=0.99,
+        tile_size=380,
     )
 
     logger.info("Inference completed. Saving result...")
-    image_service.save_as_rgba(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}_with_alpha.png"))
+    image_service.save_as_rgba(
+        result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}_with_alpha_predicted.png")
+    )
 
 
 if __name__ == "__main__":
     model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path("satellite_data/sentinel2")
 
-    tile_code = SentinelBandCodePreset.PARIS
-    start_date = datetime(2025, 4, 2)
-    end_date = datetime(2025, 4, 2)
-    reference_date = datetime(2025, 4, 2)
+    tile_code = SentinelBandCodePreset.LYON
+    start_date = datetime(2025, 5, 10)
+    end_date = datetime(2025, 5, 10)
+    reference_date = datetime(2025, 5, 10)
 
     main(start_date, end_date, reference_date, images_root_directory, tile_code, model_path)
