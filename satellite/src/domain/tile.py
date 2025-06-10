@@ -29,8 +29,10 @@ class TileGrid:
         return cls(tiles, w, h, tile_size)
 
 
-def is_tile_cloudy(tile_mask: np.ndarray, white_threshold: float = 0.01, min_white_ratio: float = 0.01) -> bool:
-    """Returns True if at least 60% of the mask pixels are white (>= 0.3).
+def is_tile_cloudy(
+    tile_mask: np.ndarray, value_to_consider_white_pixel: float, minimum_white_pixels_ratio: float
+) -> bool:
+    """Returns True if at least a specified percentage of the mask pixels are white (>= white threshold).
 
     Args:
         tile_mask: The input mask array.
@@ -38,7 +40,7 @@ def is_tile_cloudy(tile_mask: np.ndarray, white_threshold: float = 0.01, min_whi
         min_white_ratio: Minimum ratio of white pixels required.
 
     Returns:
-        bool: True if the mask has at least 60% white pixels, False otherwise.
+        bool: True if the mask has at least a specified percentage of white pixels, False otherwise.
     """
-    white_pixels = np.count_nonzero(tile_mask >= white_threshold)
-    return (white_pixels / tile_mask.size) >= min_white_ratio
+    white_pixels = np.count_nonzero(tile_mask >= value_to_consider_white_pixel)
+    return (white_pixels / tile_mask.size) >= minimum_white_pixels_ratio

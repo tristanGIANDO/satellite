@@ -32,19 +32,24 @@ def main(
 
     image_service = JP2StackedImage()
     logger.info("Starting inference pipeline...")
-    result = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), image_service)
+    rgb, alpha = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), image_service)
 
     logger.info("Inference completed. Saving result...")
-    image_service.save_as_rgb(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}.png"))
+    image_service.save_as_rgb(
+        rgb, Path(f"output/{tile_code}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}.png")
+    )
+    image_service.save_as_rgb(
+        alpha, Path(f"output/{tile_code}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_mask.png")
+    )
 
 
 if __name__ == "__main__":
     model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path("satellite_data/sentinel2")
 
-    tile_code = SentinelBandCodePreset.PARIS
-    start_date = datetime(2025, 5, 19)
-    end_date = datetime(2025, 5, 26)
-    reference_date = datetime(2025, 5, 19)
+    tile_code = SentinelBandCodePreset.LYON
+    start_date = datetime(2025, 3, 7)
+    end_date = datetime(2025, 3, 7)
+    reference_date = datetime(2025, 3, 7)
 
     main(start_date, end_date, reference_date, images_root_directory, tile_code, model_path)

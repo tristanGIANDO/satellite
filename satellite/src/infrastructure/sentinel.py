@@ -109,6 +109,10 @@ def get_images_paths_from_dates(
     current_date = start_date
 
     while current_date <= end_date:
+        if current_date == reference_date:
+            current_date += timedelta(days=1)
+            continue
+
         band_paths = get_bands_at_date(current_date)
 
         if band_paths is not None:
@@ -124,7 +128,9 @@ def get_date_from_path(path: Path) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
-def generate_preview(image_service: StackedImageService, downloaded_bands_paths: list[ImagePaths]) -> None:
+def generate_preview(
+    image_service: StackedImageService, downloaded_bands_paths: list[ImagePaths], file_name: str = "preview.png"
+) -> None:
     for image_paths in downloaded_bands_paths:
         stacked = image_service.load_and_stack(image_paths)
 
@@ -133,4 +139,4 @@ def generate_preview(image_service: StackedImageService, downloaded_bands_paths:
         stacked = image_service.resize(stacked, (1000, 1000, stacked.shape[2]))
 
         logger.info(f"Saving ({image_paths.red.parent.name} - {image_paths.red.parent.parent.name}) as PNG.")
-        image_service.save_as_rgb(stacked, image_paths.red.parent / "preview.png")
+        image_service.save_as_rgb(stacked, image_paths.red.parent / file_name)

@@ -77,6 +77,9 @@ class JP2StackedImage(StackedImageService):
             stacked_image: The stacked image array.
             output_path: Path to save the PNG file.
         """
-        rgb = stacked_image[..., :3]
+        if stacked_image.shape[-1] == 1:
+            rgb = np.repeat(stacked_image, 3, axis=-1)
+        else:
+            rgb = stacked_image[..., :3]
         rgb_image = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
         Image.fromarray(rgb_image, mode="RGB").save(output_path)
