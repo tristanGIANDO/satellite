@@ -22,13 +22,20 @@ class StackedImageService:
         """Preprocess the images by loading and stacking them."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def postprocess(self, tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:
+    def postprocess(
+        self,
+        tiles_dict: dict[tuple, np.ndarray],
+        alpha_dict: dict[tuple, np.ndarray],
+        width: int,
+        height: int,
+        tile_size: int,
+    ) -> np.ndarray:
         image = np.zeros((height, width, 4), dtype=np.float32)
         for (i, j), tile in tiles_dict.items():
             y, x = i * tile_size, j * tile_size
             h, w = tile.shape[:2]
             image[y : y + h, x : x + w, :3] = tile
-            image[y : y + h, x : x + w, 3] = 1.0  # Set alpha to 1 where tile is placed
+            image[y : y + h, x : x + w, 3] = alpha_dict.get((i, j))
         return image
 
     def split_image_into_tiles(self, image: np.ndarray, size: int = 256) -> TileGrid:
@@ -42,4 +49,8 @@ class StackedImageService:
 
     def save_as_rgb(self, stacked_image: np.ndarray, output_path: Path) -> None:
         """Save the stacked image as an RGB image."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def save_as_rgba(self, stacked_image: np.ndarray, output_path: Path) -> None:
+        """Save the stacked image as an RGBA image."""
         raise NotImplementedError("This method should be implemented in subclasses.")

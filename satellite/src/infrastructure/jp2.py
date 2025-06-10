@@ -80,3 +80,66 @@ class JP2StackedImage(StackedImageService):
         rgb = stacked_image[..., :3]
         rgb_image = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
         Image.fromarray(rgb_image, mode="RGB").save(output_path)
+
+    def save_as_rgba(self, stacked_image: np.ndarray, output_path: Path) -> None:
+        """Save the RGBA part of the stacked image as a PNG file.
+
+        Args:
+            stacked_image: The stacked image array.
+            output_path: Path to save the PNG file.
+        """
+        if stacked_image.shape[2] < 4:
+            raise ValueError("Stacked image must have at least 4 channels for RGBA output.")
+        rgba = stacked_image[..., :4]
+        rgba_image = (np.clip(rgba, 0, 1) * 255).astype(np.uint8)
+        Image.fromarray(rgba_image, mode="RGBA").save(output_path)
+
+
+def clip(arr, min_val=0.0, max_val=1.0):
+    return np.clip(arr, min_val, max_val)
+
+
+def adj(a, tx, ty, maxC):
+    a = clip(a / maxC, 0, 1)
+    numerator = a * (a * (tx / maxC + ty - 1) - ty)
+    denominator = a * (2 * tx / maxC - 1) - tx / maxC
+    return numerator / (denominator + 1e-6)  # éviter division par zéro
+
+
+def adj_gamma(b, gamma=1.8, gOff=0.01):
+    gOffPow = gOff**gamma
+    gOffRange = (1 + gOff) ** gamma - gOffPow
+    return ((b + gOff) ** gamma - gOffPow) / gOffRange
+
+
+def s_adj(a, midR=0.13, ty=1, maxR=3.0):
+    return adj_gamma(adj(a, midR, ty, maxR))
+
+
+def sat_enhance(r, g, b, sat=1.5):
+    avgS = (r + g + b) / 3.0 * (1 - sat)
+    r_out = clip(avgS + r * sat)
+    g_out = clip(avgS + g * sat)
+    b_out = clip(avgS + b * sat)
+    return r_out, g_out, b_out
+
+
+def to_sRGB(c):
+    return np.where(c <= 0.0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - 0.055)
+
+
+def enhance_rgb_image(r, g, b):
+    # Étape 1 : Ajustement contrastes + gamma
+    r = s_adj(r)
+    g = s_adj(g)
+    b = s_adj(b)
+
+    # Étape 2 : Saturation
+    r, g, b = sat_enhance(r, g, b)
+
+    # Étape 3 : Correction sRGB
+    # r = to_sRGB(r)
+    # g = to_sRGB(g)
+    # b = to_sRGB(b)
+
+    return np.stack([r, g, b], axis=-1)
