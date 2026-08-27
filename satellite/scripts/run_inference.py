@@ -35,7 +35,7 @@ def main(
     result = run_inference_pipeline(image_paths, TorchModelService(model_path, "cpu"), image_service)
 
     logger.info("Inference completed. Saving result...")
-    image_service.save_as_rgb(result, Path(f"output/{start_date.strftime('%Y-%m-%d')}_{tile_code}.png"))
+    image_service.save_as_rgb(result, Path(f"output/202510__0.05_{start_date.strftime('%Y-%m-%d')}_{tile_code}.png"))
 
 
 if __name__ == "__main__":
@@ -43,8 +43,8 @@ if __name__ == "__main__":
     images_root_directory = Path("satellite_data/sentinel2")
 
     tile_code = SentinelBandCodePreset.PARIS
-    start_date = datetime(2025, 5, 19)
-    end_date = datetime(2025, 5, 26)
-    reference_date = datetime(2025, 5, 19)
+    start_date = datetime(2025, 7, 13)
+    end_date = datetime(2025, 7, 13)
+    reference_date = datetime(2025, 7, 13)
 
     main(start_date, end_date, reference_date, images_root_directory, tile_code, model_path)
