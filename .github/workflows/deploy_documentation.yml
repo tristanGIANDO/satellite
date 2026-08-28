@@ -1,12 +1,20 @@
-name: Deploy MkDocs
+name: Deploy documentation
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy_documentation.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -15,23 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - run: pip install mkdocs mkdocs-material
-
-      - name: Build site
-        run: mkdocs build
-
-      - name: Deploy to GitHub Pages manually
+      # The site is plain HTML/CSS/JS: nothing to build, docs/ is published as-is.
+      - name: Publish docs/ to gh-pages
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          cd site
+          cd docs
+          touch .nojekyll
           git init
           git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git checkout -b gh-pages
-          git add .
-          git commit -m "Deploy MkDocs site"
+          git add -A
+          git commit -m "Deploy documentation (${{ github.sha }})"
           git push --force origin gh-pages
