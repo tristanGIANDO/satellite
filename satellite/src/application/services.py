@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from satellite.src.domain.image import ImagePaths
-from satellite.src.domain.tile import Tile, TileGrid
+from satellite.src.domain.tile import DEFAULT_TILE_SIZE, Tile, TileGrid
 
 
 class ModelService(ABC):
@@ -18,8 +18,16 @@ class StackedImageService:
     def load_and_stack(self, image_paths: ImagePaths) -> np.ndarray:
         raise NotImplementedError("This method should be implemented in subclasses.")
 
+    def load_cirrus_reflectance(self, image_paths: ImagePaths, target_shape: tuple[int, int]) -> np.ndarray | None:
+        """Load the cirrus band as reflectance at the main bands' resolution, if it is available."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
+    def to_model_input(self, stacked_image: np.ndarray) -> np.ndarray:
+        """Normalize raw stacked bands into the format the model was trained on."""
+        raise NotImplementedError("This method should be implemented in subclasses.")
+
     def preprocess(self, stacked_image: np.ndarray, reference_image_paths: ImagePaths | None) -> np.ndarray:
-        """Preprocess the images by loading and stacking them."""
+        """Build a display-ready RGB composite from raw stacked bands (never fed to the model)."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
     def postprocess(self, tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:
@@ -31,11 +39,11 @@ class StackedImageService:
             image[y : y + h, x : x + w, 3] = 1.0  # Set alpha to 1 where tile is placed
         return image
 
-    def split_image_into_tiles(self, image: np.ndarray, size: int = 256) -> TileGrid:
+    def split_image_into_tiles(self, image: np.ndarray, size: int = DEFAULT_TILE_SIZE) -> TileGrid:
         return TileGrid.from_array(image, tile_size=size)
 
-    def get_remaining_indices(self, grid: TileGrid, filled_tiles: dict[tuple, np.ndarray]) -> list[tuple]:
-        return [tile.index for tile in grid.tiles if tile.index not in filled_tiles]
+    def get_remaining_indices(self, grid: TileGrid, filled_tiles: dict[tuple, np.ndarray]) -> set[tuple]:
+        return {tile.index for tile in grid.tiles if tile.index not in filled_tiles}
 
     def resize(self, stacked_image: np.ndarray, size: tuple[int, int, int]) -> np.ndarray:
         raise NotImplementedError("This method should be implemented in subclasses.")

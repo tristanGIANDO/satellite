@@ -19,6 +19,7 @@ class SentinelConfig:
     green: str = "B03.jp2"
     blue: str = "B02.jp2"
     near_infrared: str = "B08.jp2"
+    cirrus: str = "B10.jp2"
 
 
 class SentinelBandCodePreset(StrEnum):
@@ -72,11 +73,12 @@ def download_timerange_bands(
             g = download_band(output_directory, tile, d, SentinelConfig.green)
             b = download_band(output_directory, tile, d, SentinelConfig.blue)
             n = download_band(output_directory, tile, d, SentinelConfig.near_infrared)
+            c = download_band(output_directory, tile, d, SentinelConfig.cirrus)
             if not r.exists() or not g.exists() or not b.exists() or not n.exists():
                 logger.warning(f"Missing bands for tile {tile} on date {d}. Skipping this tile.")
                 continue
 
-            downloaded_bands.append(ImagePaths(r, g, b, n))
+            downloaded_bands.append(ImagePaths(r, g, b, n, c if c.exists() else None))
 
     return downloaded_bands
 
@@ -84,10 +86,11 @@ def download_timerange_bands(
 def get_images_paths_from_dates(
     start_date: datetime,
     end_date: datetime,
-    reference_date: datetime,
     base_dir: Path,
     tile_code: SentinelBandCodePreset,
 ) -> list[ImagePaths]:
+    """Lists, in chronological order, every date in the range whose 4 bands are all on disk."""
+
     def get_bands_at_date(date: datetime) -> ImagePaths | None:
         date_str = date.strftime("%Y-%m-%d")
         band_paths = (
@@ -98,14 +101,10 @@ def get_images_paths_from_dates(
         )
 
         if all(path.exists() for path in band_paths):
-            return ImagePaths(*band_paths)
+            cirrus_path = base_dir / date_str / tile_code / SentinelConfig.cirrus
+            return ImagePaths(*band_paths, cirrus_path if cirrus_path.exists() else None)
 
-    reference_bands = get_bands_at_date(reference_date)
-    if reference_bands is None:
-        image_paths = []
-    else:
-        image_paths = [reference_bands]
-
+    image_paths = []
     current_date = start_date
 
     while current_date <= end_date:
