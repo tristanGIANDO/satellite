@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 if __name__ == "__main__":
-    start_date = date(2025, 4, 1)
-    end_date = date(2025, 4, 2)
+    start_date = date(2025, 7, 10)
+    end_date = date(2025, 7, 13)
     tiles = [SentinelBandCodePreset.PARIS]
 
     downloaded_bands = download_timerange_bands(
