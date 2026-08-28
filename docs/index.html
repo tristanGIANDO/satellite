@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Satellite — Removing clouds from Sentinel-2</title>
+<meta name="description" content="A working log: training a U-Net to segment clouds in Sentinel-2 imagery, then compositing a cloud-free mosaic of the Paris tile from a month of passes." />
+<meta name="author" content="Tristan Giandoriggio" />
+<meta property="og:title" content="Satellite — Removing clouds from Sentinel-2" />
+<meta property="og:description" content="Training a cloud segmentation U-Net and compositing a cloud-free mosaic, per pixel." />
+<meta property="og:image" content="assets/mosaic_202506_final.jpg" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="#top">
+    <img src="assets/logo.png" alt="" width="24" height="24" />
+    <span>satellite</span>
+  </a>
+  <nav class="tabs" aria-label="Sections">
+    <a href="#question">Question</a>
+    <a href="#data">Data</a>
+    <a href="#model">Model</a>
+    <a href="#masks">Masks</a>
+    <a href="#mosaic">Mosaic</a>
+    <a href="#residuals">Residuals</a>
+    <a href="#next">Next</a>
+  </nav>
+  <a class="repo" href="https://github.com/tristanGIANDO/satellite">GitHub ↗</a>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="hero-media" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <p class="kicker">Working log · Cloud segmentation · Sentinel-2</p>
+    <h1>Tired of bad weather?<br />Learn to delete it.</h1>
+    <p class="lede">
+      Two thirds of the planet is under cloud at any moment, so most of what an optical satellite sends back
+      is weather rather than ground. This is a pipeline that removes it from <b>any Sentinel-2 tile on
+      Earth</b>: a U-Net decides, pixel by pixel, whether it is looking at cloud, and a compositor keeps for
+      every pixel the single cleanest observation in a chosen time range. The ground is never missing. It is
+      only ever scattered across dates.
+    </p>
+    <p class="lede">
+      Nothing below is specific to a place. The tile code and the date range are arguments &mdash; Paris in
+      June 2025 is simply the run I have the most evidence for.
+    </p>
+    <ul class="stats">
+      <li><b>95.3%</b><span>of a tile recovered</span></li>
+      <li><b>14</b><span>dates, one month</span></li>
+      <li><b>4+1</b><span>bands: RGB, NIR, cirrus</span></li>
+      <li><b>2 args</b><span>to point it anywhere</span></li>
+    </ul>
+    <p class="byline">Tristan Giandoriggio · first project in PyTorch, first with real satellite data</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 01 ───────────────────────────── -->
+<section id="question" class="entry">
+  <div class="rail"><span class="num">01</span></div>
+  <div class="body">
+    <h2>The question</h2>
+    <p class="claim">
+      Cloud removal is usually posed as inpainting. It is not. It is a selection problem.
+    </p>
+    <p>
+      Generative inpainting invents plausible ground under the cloud. That is the wrong tool here, and an
+      unnecessary one. Sentinel-2 revisits every one of its 110&nbsp;×&nbsp;110&nbsp;km tiles — the whole
+      landmass of the planet — every two to three days. Over a month that is a dozen or more looks at
+      identical ground under different skies. Nothing needs to be hallucinated: every pixel was seen clearly
+      at least once. The whole task reduces to two decisions:
+    </p>
+    <ol class="decisions">
+      <li><b>Is this pixel contaminated?</b> A segmentation problem, and the part a network is good at.</li>
+      <li><b>Of all the clean looks at this pixel, which one do I keep?</b> A ranking problem, and the part
+        physics is good at.</li>
+    </ol>
+    <p>
+      Both had to be wrong before the composite looked right, and a third problem I had not counted on —
+      <b>radiometry</b> — turned out to decide whether the result looks like an image or like a patchwork.
+      What follows is the order in which they broke.
+    </p>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 02 ───────────────────────────── -->
+<section id="data" class="entry">
+  <div class="rail"><span class="num">02</span></div>
+  <div class="body">
+    <h2>Data — two sources that do not match</h2>
+    <p>
+      Labels come from <a href="https://www.kaggle.com/datasets/sorour/38cloud-cloud-segmentation-in-satellite-images">38-Cloud</a>:
+      8&nbsp;400 Landsat-8 patches of 384&nbsp;px, each with red, green, blue, near-infrared and a hand-checked cloud mask.
+      Inference runs on Sentinel-2. Different satellite, different sensor, different radiometry — the domain
+      gap is the price of having labels at all.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/dataset_channels.jpg" alt="The five channels of a 38-Cloud patch: red, green, blue, near-infrared and the ground-truth mask" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 1</span> One training sample. The mask is the only thing the network is asked to reproduce.</figcaption>
+    </figure>
+
+    <div class="fig-row">
+      <figure class="fig">
+        <img src="assets/dataset_rgb.jpg" alt="RGB composite of a training patch" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 2a</span> RGB composite, for viewing only — the model reads the bands separately.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="assets/dataset_rgba.jpg" alt="Same patch with the cloudy pixels cut out through the alpha channel" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 2b</span> The same patch with the mask applied to alpha. This is the target shape of an output.</figcaption>
+      </figure>
+    </div>
+
+    <h3>Pulling Sentinel-2</h3>
+    <p>
+      Scenes come straight from the public S3 bucket as JPEG2000, one file per band, addressed by
+      military-grid tile code and date. Four bands drive the model, a fifth turns out to matter later.
+    </p>
+
+    <div class="table-wrap">
+      <table class="bands">
+        <thead><tr><th>Band</th><th>Sentinel-2</th><th>Resolution</th><th>Role here</th></tr></thead>
+        <tbody>
+          <tr><td>Red</td><td><code>B04</code></td><td>10 m</td><td>model input · display</td></tr>
+          <tr><td>Green</td><td><code>B03</code></td><td>10 m</td><td>model input · display</td></tr>
+          <tr><td>Blue</td><td><code>B02</code></td><td>10 m</td><td>model input · display · contamination score</td></tr>
+          <tr><td>Near-infrared</td><td><code>B08</code></td><td>10 m</td><td>model input · shadow detection</td></tr>
+          <tr><td>Cirrus</td><td><code>B10</code></td><td>60 m</td><td>thin-cloud veto <span class="tag">added late</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <code>rasterio</code> rather than <code>Pillow</code>: JP2 with geospatial metadata, arbitrary band
+      stacks, 16-bit reflectance. Pillow understands none of that.
+    </p>
+
+    <div class="fig-row">
+      <figure class="fig">
+        <img src="assets/sentinel_tiles_ref.jpg" alt="Sentinel-2 military grid tiles over France" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 3</span> The grid. Paris is <code>31UDQ</code>; Lyon, Montpellier, New&nbsp;York and Tromsø are wired in as presets.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="assets/sentinel_bands.jpg" alt="The four Sentinel-2 bands of one scene shown separately" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 4</span> One Sentinel-2 date, four bands, 10 980&nbsp;×&nbsp;10 980&nbsp;px each.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- MODEL -->
+<section id="model" class="entry">
+  <div class="rail"><span class="num">03</span></div>
+  <div class="body">
+    <h2>Model &mdash; one architecture, four runs</h2>
+    <p>
+      Binary segmentation, so: an encoder that trades resolution for context, a decoder that trades it back,
+      skip connections that return the edges the pooling threw away, and <code>BCEWithLogitsLoss</code> on the
+      raw logits &mdash; a sigmoid squashing each output into a probability, then binary cross-entropy against
+      the hand-drawn mask. Two depths, 32&rarr;64&rarr;128 channels, dropout 0.3 in the bottleneck and in the
+      first decoder block. Roughly half a million parameters, trained on CPU.
+    </p>
+    <p>
+      The architecture barely moved across the whole project. What moved was the <b>input</b> and the
+      <b>amount of data</b>, over four runs. Every figure below is the same triptych: the RGB patch, the
+      hand-drawn mask, and what the network predicted for it.
+    </p>
+
+    <div class="table-wrap">
+      <table class="bands runs">
+        <thead><tr><th>Run</th><th>Input</th><th>Patches</th><th>Epochs</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>RGB</td><td>100</td><td>10</td><td>cloud shape learned, edges ragged</td></tr>
+          <tr><td>2</td><td>RGB</td><td>4&nbsp;200</td><td>9</td><td>sharper, snow still read as cloud <span class="tag">abandoned</span></td></tr>
+          <tr><td>3</td><td>RGB + NIR</td><td>100</td><td>10</td><td>beats run 2 with 2% of its data</td></tr>
+          <tr><td>4</td><td>RGB + NIR</td><td>4&nbsp;000</td><td>20</td><td>shipped <span class="tag">in production</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="run">
+      <h3><span class="it">Run 1</span> RGB baseline</h3>
+      <p class="runcard"><span>in_channels 3</span><span>100 patches</span><span>10 epochs</span><span>384 px</span></p>
+      <p>
+        The premise of the baseline was pessimistic: I assumed Sentinel-2 near-infrared would be painful to
+        obtain, so I trained on what an ordinary photograph gives you. Three channels, a hundred patches, ten
+        epochs &mdash; deliberately the smallest thing that could produce a mask at all.
+      </p>
+      <div class="fig-row">
+        <figure class="fig">
+          <img src="assets/v1_s100_cumulus.jpg" alt="RGB patch, ground-truth mask and predicted mask for a scattered-cumulus scene" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 5a</span> Scattered cumulus. The blobs land in the right places; every boundary is ragged.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img src="assets/v1_s100_snow.jpg" alt="RGB patch of a snow-covered valley, an empty ground-truth mask, and a prediction covering the snow" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 5b</span> A snow-covered valley. Ground truth: no cloud at all. The network disagrees, confidently.</figcaption>
+        </figure>
+      </div>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          A hundred patches are enough to learn <i>where clouds are</i>. They are not enough to learn
+          <i>what a cloud is</i>. In RGB, fresh snow and a cumulus tower are the same object: bright, neutral,
+          high-contrast against everything around them.
+        </p>
+      </div>
+    </div>
+
+    <div class="run">
+      <h3><span class="it">Run 2</span> RGB, 42&times; more data</h3>
+      <p class="runcard"><span>in_channels 3</span><span>4&nbsp;200 patches</span><span>9 epochs</span></p>
+      <p>
+        The obvious next move: keep the architecture, scale the dataset from 100 patches to 4&nbsp;200. It
+        works, exactly as far as data can take it.
+      </p>
+      <div class="fig-row">
+        <figure class="fig">
+          <img src="assets/v1_s4200_cumulus.jpg" alt="RGB triptych on a cumulus scene after training on 4200 patches" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 6a</span> Cumulus: the ragged edges are gone. That is what 42&times; the data buys.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img src="assets/v1_s4200_overcast.jpg" alt="RGB triptych on a uniform overcast scene, prediction is speckled" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 6b</span> Uniform overcast: the prediction breaks into speckle. No amount of RGB fixes it.</figcaption>
+        </figure>
+      </div>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          More data sharpens what the model already gets right and does nothing for what it cannot see. Snow
+          stays cloud; a sheet of stratus with no contrast anywhere stays undecidable. <b>The failure is
+          spectral, not statistical</b> &mdash; an argument for a fourth channel, not for a bigger dataset.
+        </p>
+      </div>
+      <p class="aside">
+        This branch was dropped for a second reason too: a bug in the training pipeline made the checkpoint
+        untrustworthy. And the assumption underneath it was simply wrong &mdash; Sentinel-2's NIR band is one
+        more file in the same S3 bucket. It cost nothing to add.
+      </p>
+    </div>
+
+    <div class="run">
+      <h3><span class="it">Run 3</span> Four channels, back to 100 patches</h3>
+      <p class="runcard"><span>in_channels 4 &middot; +NIR</span><span>100 patches</span><span>10 epochs</span><span>dropout 0.3</span></p>
+      <p>
+        Same architecture, one extra input channel, and the dataset deliberately reset to 100 patches to
+        isolate the variable. Near-infrared is where cloud and snow separate: cloud stays bright at 842&nbsp;nm,
+        snow and ice absorb.
+      </p>
+      <div class="fig-row">
+        <figure class="fig">
+          <img src="assets/v2_s100_overcast.jpg" alt="Four-channel model triptych on a hazy overcast scene" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 7a</span> The overcast case run 2 could not resolve, at 2% of its training data.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img src="assets/v2_s100_snow.jpg" alt="Four-channel model triptych on the snow valley, prediction still firing on the ridges" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 7b</span> Snow again: much better, not solved. The ridges still fire.</figcaption>
+        </figure>
+      </div>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          <b>One channel beat 42&times; the data.</b> Run 3 sees 100 patches and outperforms run 2's 4&nbsp;200
+          on precisely the cases run 2 failed. When a model is blind rather than undertrained, the fix is an
+          instrument, not a GPU.
+        </p>
+      </div>
+      <figure class="fig narrow">
+        <img src="assets/v2_s100_loss.jpg" alt="Training and validation loss over 10 epochs on 100 patches" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 7c</span> 10 epochs on 100 patches. Validation still tracks training &mdash; with this little data, nowhere near overfitting.</figcaption>
+      </figure>
+    </div>
+
+    <div class="run">
+      <h3><span class="it">Run 4</span> Four channels, 4&nbsp;000 patches &mdash; shipped</h3>
+      <p class="runcard"><span>in_channels 4 &middot; +NIR</span><span>4&nbsp;000 patches</span><span>20 epochs</span><span>simple_unet_v2_subset4000_epoch20.pth</span></p>
+      <p>
+        Both changes combined. This is the checkpoint every mask and every mosaic below comes from.
+      </p>
+      <div class="fig-row">
+        <figure class="fig">
+          <img src="assets/v2_s4000_cumulus.jpg" alt="Final model triptych on scattered cumulus, prediction closely matching ground truth" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 8a</span> Cumulus: prediction and ground truth are hard to tell apart.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img src="assets/v2_s4000_snow.jpg" alt="Final model triptych on the snow scene, only specks predicted" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 8b</span> The snow case, four runs later: a few specks instead of a whole valley.</figcaption>
+        </figure>
+      </div>
+      <div class="fig-row">
+        <figure class="fig">
+          <img src="assets/v2_s4000_small.jpg" alt="Final model triptych on small scattered clouds" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 8c</span> Small isolated clouds, caught one by one.</figcaption>
+        </figure>
+        <figure class="fig">
+          <img src="assets/train_v2_s4000_loss.jpg" alt="Training and validation loss over 20 epochs" loading="lazy" />
+          <figcaption><span class="fignum">Fig. 8d</span> 20 epochs on 4&nbsp;000 patches. The curve flattens around epoch 12; the last third is noise.</figcaption>
+        </figure>
+      </div>
+      <div class="callout caution">
+        <span class="label">Caveat</span>
+        <p>
+          Every number here is Landsat-8 validation. The model is then asked to work on Sentinel-2, over
+          European cities, at 10&nbsp;m instead of 30&nbsp;m. Section 04 is where that bill comes due &mdash;
+          and no loss curve predicts it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 04 ───────────────────────────── -->
+<section id="masks" class="entry">
+  <div class="rail"><span class="num">04</span></div>
+  <div class="body">
+    <h2>Masks — what the network actually learned</h2>
+    <p>
+      A scene is 10 980&nbsp;px square; the model eats 256&nbsp;px tiles. Each date is cut on a fixed grid,
+      predicted tile by tile, and stitched back into one probability map at full resolution. Those maps are
+      the most informative artefact in the project — far more than any validation metric — because the
+      failures are legible in them.
+    </p>
+
+    <div class="mask-grid">
+      <figure class="fig mask">
+        <img src="assets/mask_2025-06-13.jpg" alt="Cloud probability map for 13 June 2025, almost entirely black" loading="lazy" />
+        <figcaption><span class="fignum">13 June</span> 87.8% usable — the clearest day of the month.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/mask_2025-06-06.jpg" alt="Cloud probability map for 6 June 2025" loading="lazy" />
+        <figcaption><span class="fignum">6 June</span> 31.2% usable — broken cumulus.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/mask_2025-06-01.jpg" alt="Cloud probability map for 1 June 2025" loading="lazy" />
+        <figcaption><span class="fignum">1 June</span> 6.4% usable — the month opens badly.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/mask_2025-06-23.jpg" alt="Cloud probability map for 23 June 2025, mostly white" loading="lazy" />
+        <figcaption><span class="fignum">23 June</span> 8.4% usable — overcast, with the tile grid faintly visible.</figcaption>
+      </figure>
+    </div>
+    <p class="caption-note">White is cloud probability near 1. Click any figure to enlarge.</p>
+
+    <div class="callout finding">
+      <span class="label">Finding</span>
+      <p>
+        On a genuinely clear day the residual signal is <b>the city itself</b>. Raise the gamma on 13 June and
+        the "clouds" left in the map draw Paris: the boulevards, the rail yards, La Défense, the airport
+        aprons. Bright impervious surfaces are radiometrically the closest thing to a small cloud that ground
+        can be, and a 384&nbsp;px Landsat patch of farmland never taught the network otherwise.
+      </p>
+    </div>
+
+    <figure class="fig">
+      <img src="assets/mask_2025-06-13_boost.jpg" alt="Same 13 June probability map with gamma raised, revealing the road network of Paris" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 9</span> 13 June, γ&nbsp;0.35. The false positives are a street map.</figcaption>
+    </figure>
+
+    <div class="callout caution">
+      <span class="label">Artefact</span>
+      <p>
+        On heavily clouded dates the 256&nbsp;px tile grid shows through as faint seams (23 June, above).
+        Each tile is normalised and predicted independently, so a uniform overcast — where there is no
+        contrast anywhere in a tile — lets per-tile statistics leak into the output. It is invisible on clear
+        days and harmless after thresholding, but it is real and overlapped inference would remove it.
+      </p>
+    </div>
+
+    <h3>From probability to a usable/unusable decision</h3>
+    <p>
+      A threshold on the network output alone throws away too much and keeps too much at the same time.
+      What the compositor consumes is a stack of vetoes:
+    </p>
+    <ol class="steps">
+      <li><b>p ≥ 0.35</b> — the network's own call, deliberately below 0.5. Under-detection costs a permanent
+        cloud in the composite; over-detection only costs coverage, and coverage can be bought with another date.</li>
+      <li><b>Cirrus ≥ 0.008</b> — band <code>B10</code> sees the high thin veil that is nearly invisible in
+        RGB+NIR and that the network, trained without it, cannot see either.</li>
+      <li><b>Objects &lt; 100&nbsp;px removed</b> — isolated specks are speckle, not weather.</li>
+      <li><b>Dilate 100&nbsp;px</b> — a cloud's soft edge is unusable long before its core, and the network's
+        boundary is optimistic.</li>
+      <li><b>Shadows</b> — pixels abnormally dark in NIR (below 0.7× the scene median) and within 300&nbsp;px
+        of a cloud are its shadow. Shadows are not clouds and no network here was ever trained to find them.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 05 ───────────────────────────── -->
+<section id="mosaic" class="entry">
+  <div class="rail"><span class="num">05</span></div>
+  <div class="body">
+    <h2>Mosaic — three attempts at the same month</h2>
+    <p>
+      June 2025, tile <code>31UDQ</code>, 14 dates with all bands available. Same input every time; only the
+      selection rule changed.
+    </p>
+
+    <div class="iteration">
+      <h3><span class="it">Iteration 1</span> Select whole tiles</h3>
+      <p>
+        Keep a 256&nbsp;px tile if fewer than <i>n</i>% of its pixels are cloudy; drop it otherwise. It works,
+        and it looks like a quilt. Two failures compound: a tile that is 90% clear is rejected for its
+        corner, so most of the month's good data is discarded; and neighbouring tiles come from dates with
+        different sun angles, so every boundary is a brightness step.
+      </p>
+      <figure class="fig">
+        <img src="assets/tile_rejection.jpg" alt="Predicted cloud mask beside the same scene with rejected tiles blanked out in white" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 10</span> The rule, made visible. Left: the predicted mask for one date — a few
+          thin streaks. Right: every tile that rule throws away. A handful of cloudy pixels evicts a whole
+          square kilometre of perfectly good ground.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="assets/mosaic_202506_step01.jpg" alt="Mosaic assembled by selecting whole tiles, showing a visible patchwork" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 11</span> A month composited that way. The grid is the algorithm, visible.</figcaption>
+      </figure>
+    </div>
+
+    <div class="iteration">
+      <h3>Radiometric inconsistency</h3>
+      <p>
+        The quilt above is not only a geometry problem. Two tiles that are adjacent on the ground can be
+        eight days apart in time: different sun elevation, different atmosphere, different aerosol load,
+        sometimes a different processing baseline. Each one is internally correct and none of them agree.
+        Stitch them and every boundary is a step in brightness and colour.
+      </p>
+      <p>
+        The first fix was the textbook one: <b>match every date's histogram to a reference image</b>, chosen
+        by hand for having the colours I wanted. It fails in a specific and instructive way — a histogram
+        describes a whole scene, so matching one imposes the reference's <i>land cover</i>, not just its
+        illumination. Use a forest scene as the reference for a coastal one and the water turns green. Then
+        <b>mean-based normalisation</b>: gentler, less destructive, and still blind to the fact that
+        neighbouring tiles are what must agree, not global averages.
+      </p>
+      <figure class="fig">
+        <img src="assets/radiometric_inconsistency.jpg" alt="Three composites side by side: the raw stacked image, histogram matching tests, and mean-based normalisation" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 12</span> The radiometry experiments. Raw stack, histogram matching against a
+          reference date, mean-based normalisation. Each one moves the average and none of them removes the seams.</figcaption>
+      </figure>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          Correcting each date <i>toward an external reference</i> is the wrong frame. What has to be
+          consistent is not a date against a photograph I liked, but every date against <b>what is already in
+          the mosaic</b>, measured on the pixels where the two actually overlap. That reframing — arrived at
+          only after both attempts above — is what iteration 3 implements, and it is the single change that
+          removed the seams for good.
+        </p>
+      </div>
+    </div>
+
+    <div class="iteration">
+      <h3><span class="it">Iteration 2</span> Select pixels</h3>
+      <p>
+        Drop the tile as the unit of decision and let every pixel take its own best date. The seams vanish
+        immediately — and the clouds stay.
+      </p>
+      <figure class="fig">
+        <img src="assets/mosaic_202506_step02.jpg" alt="Per-pixel mosaic that is seamless but still full of cloud" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 13</span> Per-pixel selection, network threshold only. Seamless, and wrong.</figcaption>
+      </figure>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          What survives here is exactly what the network cannot see: thin cirrus streaks and the soft haloes
+          of cumulus. Both are below <code>p&nbsp;=&nbsp;0.35</code> almost everywhere. This is the image that
+          argued for the cirrus band and for dilation — not a metric.
+        </p>
+      </div>
+    </div>
+
+    <div class="iteration">
+      <h3><span class="it">Iteration 3</span> Select pixels, rank them by physics</h3>
+      <p>
+        A pixel is a candidate if it is cloud-free by the veto stack. Among candidates, the winner is the one
+        with the lowest <b>contamination score</b>:
+      </p>
+      <p class="formula"><code>score = ρ<sub>blue</sub> + ρ<sub>cirrus</sub></code></p>
+      <p>
+        Cloud, haze and veil all scatter hardest at short wavelengths, so a contaminated pixel reads brighter
+        in blue than the same ground does on a clear day. Adding cirrus reflectance covers what blue misses.
+        No learning involved, and it beats "first clear date wins" on every date after the sixth — the log
+        shows pixels being <i>improved</i> long after they were first filled.
+      </p>
+      <p>
+        The pixels that go into the mosaic are not the model's input. The network reads raw reflectance
+        divided by 65 535, exactly as it was trained; the visible composite is built separately — a 2nd–98th
+        percentile stretch per channel, then a Gray World balance. Two images, one decision.
+      </p>
+      <p>
+        Radiometry is then matched not to a fixed reference image but <b>to the mosaic itself</b>: each new
+        date is fitted with a per-channel gain and offset over the pixels where it overlaps what is already
+        placed. That is why the seams are gone rather than merely smaller — every date is rescaled into the
+        same photometric frame as its neighbours, by construction.
+      </p>
+
+      <div class="compare" id="compare" data-before="assets/mosaic_202506_step01.jpg" data-after="assets/mosaic_202506_final.jpg">
+        <figcaption class="compare-cap">
+          <span class="fignum">Fig. 14</span> Drag: tile-level selection (left) against the final per-pixel composite (right). Same tile, same 14 dates.
+        </figcaption>
+      </div>
+    </div>
+
+    <h3>How the month fills in</h3>
+    <p>
+      Each date contributes only what is still missing or still dirty. Coverage is won early and quality
+      keeps improving after coverage saturates.
+    </p>
+
+    <figure class="fig chart-fig">
+      <div id="coverage-chart" class="chart" role="img"
+           aria-label="Chart: cumulative mosaic coverage against per-date usable fraction for 14 dates in June 2025. Coverage reaches 48% by 6 June, 94% by 13 June and 95.3% by 26 June."></div>
+      <figcaption><span class="fignum">Fig. 15</span> Bars: fraction of the scene that date could contribute. Line: cumulative coverage of the mosaic.</figcaption>
+    </figure>
+
+    <div class="callout finding">
+      <span class="label">Finding</span>
+      <p>
+        <b>Two good dates carry the month.</b> 6 June and 13 June alone take the mosaic from 21% to 94%.
+        The remaining eight dates add 1.1 points of coverage — but they rewrite up to 40% of the pixels with
+        cleaner observations. Coverage and quality saturate at completely different times, which means a
+        pipeline that stops at "the image is full" stops too early.
+      </p>
+    </div>
+
+    <figure class="fig">
+      <img src="assets/mosaic_202506_final.jpg" alt="The final cloud-free mosaic of tile 31UDQ for June 2025" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 16</span> June 2025, tile <code>31UDQ</code>, 95.3% of the scene reconstructed from 14 passes.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 06 ───────────────────────────── -->
+<section id="residuals" class="entry">
+  <div class="rail"><span class="num">06</span></div>
+  <div class="body">
+    <h2>Residuals — where it still fails</h2>
+    <p>
+      The remaining 4.7% is not random. Zoom in on Paris and the failure modes are geometric enough to name.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/mosaic_202506_paris_crop.jpg" alt="Detail of the mosaic over central Paris showing circular holes and the Seine cut out" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 17</span> Central Paris, 28&nbsp;km across. Black is "never usable on any date".</figcaption>
+    </figure>
+
+    <div class="callout caution">
+      <span class="label">Failure 1 — discs</span>
+      <p>
+        Every hole is a perfect circle, ~1&nbsp;km in radius. That is the 100&nbsp;px dilation, applied to a
+        handful of pixels the network calls cloud on <i>every single date</i> — La Défense, the rail yards at
+        Bercy and Le Bourget, the airport aprons. A permanent false positive costs 3&nbsp;km² of ground,
+        because the morphology has no way to tell a persistent detection from a weather event.
+      </p>
+    </div>
+
+    <div class="callout caution">
+      <span class="label">Failure 2 — water</span>
+      <p>
+        The Seine is carved out along its whole length. Water is near-black in NIR, which is precisely the
+        shadow test: dark in NIR, close to a cloud. Rivers and lakes are structurally indistinguishable from
+        cloud shadow under that rule. A water index (NDWI) would separate them in one extra line.
+      </p>
+    </div>
+
+    <div class="callout caution">
+      <span class="label">Failure 3 — the orbit seam</span>
+      <p>
+        A faint diagonal line crosses the full tile. It is the boundary between two adjacent Sentinel-2
+        orbits: pixels on either side were acquired on different passes with different view angles. Gain and
+        offset matching flattens the brightness step but not the angular difference in how vegetation
+        reflects. Correcting it properly means a BRDF model, not a linear fit.
+      </p>
+    </div>
+
+    <p>
+      There is also a fallback worth naming: pixels masked on <i>every</i> date are filled from their least
+      contaminated observation rather than left empty, on the argument that a permanent detection is almost
+      certainly a false one. The discs above are what remains when even that fallback has nothing to offer.
+    </p>
+
+    <div class="callout caution">
+      <span class="label">Failure 4 — the anchor</span>
+      <p>
+        The composite is darker and flatter than any single clear scene. Two causes, both structural. The
+        stretch and the colour balance measure their statistics over the <i>whole</i> raw scene, cloud
+        included — and cloud, being brighter than any ground, owns the top of the range and pushes the
+        landscape into the dark half. And because every date is fitted to the mosaic, the first date's
+        radiometry propagates through the month: here that was 1 June, 6.4% usable, a poor photometric anchor.
+        Passing the cloud-free mask into the display stretch, and anchoring on the clearest date rather than
+        the first, are both one-line changes.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 07 ───────────────────────────── -->
+<section id="next" class="entry">
+  <div class="rail"><span class="num">07</span></div>
+  <div class="body">
+    <h2>Next</h2>
+    <ul class="next-list">
+      <li><b>Fine-tune on Sentinel-2.</b> The network has never seen a European city at 10&nbsp;m. The urban
+        false positives are a domain gap, not a capacity limit.</li>
+      <li><b>Overlapping inference.</b> Half-tile stride with feathered blending removes the grid artefact
+        on overcast dates.</li>
+      <li><b>NDWI before the shadow test.</b> Stops the pipeline from deleting every river it sees.</li>
+      <li><b>Adaptive dilation.</b> Scale the buffer with the size of the detected region, so a 200&nbsp;px
+        blob does not erase 3&nbsp;km².</li>
+      <li><b>One mosaic per month, twelve months.</b> The store is already keyed by month and resumes from a
+        checkpoint. The output is a cloud-free time series of the same ground — which is the point of all of this.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="entry colophon">
+  <div class="rail"></div>
+  <div class="body">
+    <h2>Colophon</h2>
+    <p>
+      Python, PyTorch, rasterio, NumPy, scikit-image, SciPy. Hexagonal layout — domain, application,
+      infrastructure — so the compositor never knows it is reading JPEG2000. Inference runs on CPU; a full
+      month of the Paris tile takes a few hours and checkpoints as it goes.
+    </p>
+    <p class="aside">
+      Figures on this page are downscaled. Full-resolution outputs are 10 980&nbsp;px square and 200–280&nbsp;MB each.
+    </p>
+    <p>
+      <a class="cta" href="https://github.com/tristanGIANDO/satellite">Source on GitHub ↗</a>
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <span>Tristan Giandoriggio</span>
+  <span>Sentinel-2 imagery © Copernicus / ESA</span>
+  <span>38-Cloud dataset — Mohajerani &amp; Saeedi</span>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" aria-label="Close">✕</button>
+  <img alt="" />
+  <p class="lb-cap"></p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
