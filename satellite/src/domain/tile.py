@@ -56,12 +56,14 @@ def cloud_pixel_mask(
     cloud_probability: np.ndarray,
     cirrus_reflectance: np.ndarray | None = None,
     nir_reflectance: np.ndarray | None = None,
+    green_reflectance: np.ndarray | None = None,
     threshold: float = 0.35,
     cirrus_threshold: float = 0.008,
     min_cloud_size: int = 100,
     dilation_radius: int = 100,
     shadow_search_radius: int = 300,
     shadow_darkness_ratio: float = 0.7,
+    water_index_threshold: float = 0.12,
 ) -> np.ndarray:
     """Turns per-pixel cloud evidence into a boolean "this pixel is unusable" mask.
 
@@ -69,6 +71,8 @@ def cloud_pixel_mask(
         cloud_probability: Per-pixel cloud probability from the model (sigmoid output, in [0, 1]).
         cirrus_reflectance: Optional 1375nm reflectance at the same resolution.
         nir_reflectance: Optional near-infrared reflectance, used to find shadows.
+        green_reflectance: Optional green reflectance. Together with the near-infrared it
+            identifies water, so that rivers and lakes are not deleted as cloud shadow.
         threshold: Model probability above which a pixel is a cloud candidate.
         cirrus_threshold: Cirrus-band reflectance above which a pixel is a cloud candidate.
         min_cloud_size: Connected candidate regions smaller than this (in pixels) are discarded
@@ -77,6 +81,9 @@ def cloud_pixel_mask(
         shadow_search_radius: How far from a cloud a dark pixel may still be counted as its shadow.
         shadow_darkness_ratio: Fraction of the scene's typical NIR below which a pixel counts as
             dark enough to be a shadow.
+        water_index_threshold: Water index above which a dark pixel is water rather than shadow.
+            Calibrated on this data: the darkest 0.1% of the scene in near-infrared -- open water --
+            sits at 0.14 to 0.26, while barely any built-up pixel reaches 0.12.
 
     Returns:
         Boolean array, True where the pixel should be treated as cloud-contaminated.
@@ -96,23 +103,43 @@ def cloud_pixel_mask(
     unusable = distance_to_cloud <= dilation_radius
 
     if nir_reflectance is not None:
-        unusable |= _shadow_mask(nir_reflectance, distance_to_cloud, shadow_search_radius, shadow_darkness_ratio)
+        unusable |= _shadow_mask(
+            nir_reflectance,
+            green_reflectance,
+            distance_to_cloud,
+            shadow_search_radius,
+            shadow_darkness_ratio,
+            water_index_threshold,
+        )
 
     return unusable
 
 
 def _shadow_mask(
     nir_reflectance: np.ndarray,
+    green_reflectance: np.ndarray | None,
     distance_to_cloud: np.ndarray,
     search_radius: int,
     darkness_ratio: float,
+    water_index_threshold: float,
 ) -> np.ndarray:
-    """Flags pixels that are abnormally dark in the near-infrared and close enough to be a shadow."""
+    """Flags pixels that are abnormally dark in the near-infrared and close enough to be a shadow.
+
+    Water has to be excluded first, because it meets that description perfectly: rivers and lakes
+    absorb near-infrared, so a shadow test alone deletes every one of them it finds near a cloud.
+    They are told apart by the normalised difference water index, which compares green against
+    near-infrared -- water is the one dark surface that stays comparatively bright in green.
+    """
     lit_ground = distance_to_cloud > search_radius
     if lit_ground.sum() < 10_000:
         return np.zeros_like(distance_to_cloud, dtype=bool)
 
     typical_nir = float(np.median(nir_reflectance[lit_ground]))
     is_dark = nir_reflectance < darkness_ratio * typical_nir
+    shadow = is_dark & (distance_to_cloud <= search_radius)
 
-    return is_dark & (distance_to_cloud <= search_radius)
+    if green_reflectance is not None:
+        water_index = (green_reflectance - nir_reflectance) / (green_reflectance + nir_reflectance + 1e-6)
+        shadow &= water_index <= water_index_threshold
+
+    return shadow

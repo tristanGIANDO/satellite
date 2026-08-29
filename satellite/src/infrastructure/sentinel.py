@@ -38,6 +38,46 @@ def build_download_band_url(tile_code: str, date: str, band: str) -> str:
     return f"{SentinelConfig.database_url}/{utm_zone}/{lat_band}/{grid_square}/{year}/{int(month)}/{int(day)}/0/{band}"
 
 
+def list_available_dates(tile_code: str, start_date: date, end_date: date) -> list[date]:
+    """Finds which dates in the range actually have a scene, without downloading any of them.
+
+    Sentinel-2 only passes over a given tile every few days, so most calendar dates hold nothing.
+    A HEAD request per day is enough to tell which do.
+    """
+    available = []
+    for offset in range((end_date - start_date).days + 1):
+        day = start_date + timedelta(days=offset)
+        url = build_download_band_url(tile_code, day.isoformat(), SentinelConfig.blue)
+        try:
+            if requests.head(url, timeout=15).status_code == 200:
+                available.append(day)
+        except Exception as e:
+            logger.warning(f"Could not probe {tile_code} on {day}: {e}")
+
+    return available
+
+
+def download_bands_at_date(output_directory: Path, tile_code: str, day: date) -> ImagePaths | None:
+    """Downloads every band needed for one date, or returns None if any of the four main ones is missing."""
+    date_str = day.isoformat()
+    paths = [
+        download_band(output_directory, tile_code, date_str, band)
+        for band in (
+            SentinelConfig.red,
+            SentinelConfig.green,
+            SentinelConfig.blue,
+            SentinelConfig.near_infrared,
+        )
+    ]
+
+    if not all(path.exists() for path in paths):
+        logger.warning(f"Missing bands for tile {tile_code} on {date_str}. Skipping this date.")
+        return None
+
+    cirrus = download_band(output_directory, tile_code, date_str, SentinelConfig.cirrus)
+    return ImagePaths(*paths, cirrus if cirrus.exists() else None)
+
+
 def download_band(output_directory: Path, tile_code: str, date: str, band_filename: str) -> Path:
     url = build_download_band_url(tile_code, date, band_filename)
     output_path = output_directory / date / tile_code
