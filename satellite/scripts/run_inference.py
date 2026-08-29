@@ -13,15 +13,6 @@ from satellite.src.infrastructure.sentinel import (
     get_images_paths_from_dates,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("inference_pipeline.log", mode="w"),
-    ],
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -32,12 +23,24 @@ def main(
     tile_code: SentinelBandCodePreset,
     model_path: Path,
     mosaic_store: MosaicStore,
+    max_dates: int | None = None,
+    output_path: Path | None = None,
 ) -> None:
     logger.info(f"Fetching image paths for tile {tile_code} between {start_date} and {end_date}")
     image_paths = get_images_paths_from_dates(start_date, end_date, images_root_directory, tile_code)
     logger.info(f"Found {len(image_paths)} dates with all 4 bands available locally")
 
     image_service = JP2StackedImage()
+
+    # Clearest date first: the mosaic is assembled incrementally and every later date's colors are
+    # matched to what is already in place, so the first date sets the reference everything else
+    # inherits. Starting from a hazy date propagates its cast through the whole month.
+    image_paths.sort(key=image_service.estimate_contamination)
+    logger.info("Dates ordered clearest first: " + ", ".join(p.red.parent.parent.name for p in image_paths))
+
+    if max_dates is not None:
+        image_paths = image_paths[:max_dates]
+        logger.info(f"Limited to the {len(image_paths)} clearest date(s)")
 
     existing_mosaic = mosaic_store.load()
     existing_rgb = existing_filled = None
@@ -61,10 +64,9 @@ def main(
 
     logger.info("Inference completed. Saving result...")
     mosaic_store.save(result)
-    image_service.save_as_rgb(
-        result,
-        Path(f"output/{tile_code}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}.png"),
-    )
+    if output_path is None:
+        output_path = Path(f"output/{tile_code}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}.png")
+    image_service.save_as_rgb(result, output_path)
 
     for date_label, mask_image in cloud_masks_by_date.items():
         image_service.save_as_rgb(mask_image, Path(f"output/masks/{tile_code}_{date_label}.png"))
@@ -72,6 +74,15 @@ def main(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("inference_pipeline.log", mode="w"),
+        ],
+    )
+
     model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path("satellite_data/sentinel2")
 

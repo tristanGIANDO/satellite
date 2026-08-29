@@ -26,8 +26,17 @@ class StackedImageService:
         """Normalize raw stacked bands into the format the model was trained on."""
         raise NotImplementedError("This method should be implemented in subclasses.")
 
-    def preprocess(self, stacked_image: np.ndarray, reference_image_paths: ImagePaths | None) -> np.ndarray:
-        """Build a display-ready RGB composite from raw stacked bands (never fed to the model)."""
+    def preprocess(
+        self,
+        stacked_image: np.ndarray,
+        reference_image_paths: ImagePaths | None,
+        valid_mask: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Build a display-ready RGB composite from raw stacked bands (never fed to the model).
+
+        `valid_mask` marks the cloud-free pixels, so contrast and color statistics are measured
+        on the landscape rather than on the cloud covering it.
+        """
         raise NotImplementedError("This method should be implemented in subclasses.")
 
     def postprocess(self, tiles_dict: dict[tuple, np.ndarray], width: int, height: int, tile_size: int) -> np.ndarray:
