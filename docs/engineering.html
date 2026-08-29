@@ -54,11 +54,12 @@
     </p>
     <ul class="stats">
       <li><b>4 / 15</b><span>dates actually downloaded</span></li>
-      <li><b>4 min 47</b><span>per date, measured</span></li>
-      <li><b>11.7 GB</b><span>peak RSS, 964 MB scene</span></li>
-      <li><b>72%</b><span>of the time in the model</span></li>
+      <li><b>4 min 47 &rarr; 2 min 02</b><span>per date, measured</span></li>
+      <li><b>22.5 &rarr; 10.1 GB</b><span>peak RSS, 964 MB scene</span></li>
+      <li><b>772% &rarr; 1456%</b><span>CPU during inference</span></li>
     </ul>
-    <p class="byline">Three diagrams, one profiler, and an honest list of what is still missing.</p>
+    <p class="byline">Three diagrams, one profiler, six bottlenecks fixed, and an honest list of what is
+      still missing.</p>
   </div>
 </section>
 
@@ -299,15 +300,17 @@
 <section id="profiling" class="entry">
   <div class="rail"><span class="num">02</span></div>
   <div class="body">
-    <h2>Profiling &mdash; where the time and the memory actually go</h2>
+    <h2>Profiling &mdash; where the time and the memory actually went</h2>
     <p class="claim">
-      One date takes 4 minutes 47 and peaks at 11.7&nbsp;GB of RAM. Three quarters of that time is the model,
-      and almost all of the rest runs on a single core out of sixteen.
+      One date took 4 minutes 47 and peaked at 11.7&nbsp;GB of RAM. Three quarters of that time was the model,
+      and almost all of the rest ran on a single core out of sixteen. Fixing the six things below took the
+      same two-date run from <b>451&nbsp;s and 22.5&nbsp;GB to 262&nbsp;s and 10.1&nbsp;GB</b> &mdash; 1.7&times;
+      the speed on 45% of the memory, with the mosaic unchanged.
     </p>
     <p>
-      Measured, not estimated: every stage of a real scene &mdash; tile <code>31UDQ</code>, 13 June 2025,
-      10&nbsp;980&nbsp;&times;&nbsp;10&nbsp;980&nbsp;px &mdash; instrumented with wall time, peak resident memory
-      and process CPU sampled every 100&nbsp;ms.
+      Measured, not estimated, before and after: every stage of a real scene &mdash; tile <code>31UDQ</code>,
+      13 June 2025, 10&nbsp;980&nbsp;&times;&nbsp;10&nbsp;980&nbsp;px &mdash; instrumented with wall time, peak
+      resident memory and process CPU sampled every 100&nbsp;ms.
     </p>
 
     <div class="table-wrap">
@@ -316,7 +319,7 @@
         <tbody>
           <tr>
             <td>AMD Zen 3, 8 physical / 16 logical cores, 33.6&nbsp;GB RAM</td>
-            <td>torch 2.7.0<b>+cpu</b> &middot; 8 threads &middot; CUDA unavailable</td>
+            <td>torch 2.7.0<b>+cpu</b> &middot; CUDA unavailable</td>
             <td>120.6&nbsp;Mpx &times; 4 bands &middot; 964&nbsp;MB raw</td>
           </tr>
         </tbody>
@@ -325,108 +328,142 @@
 
     <figure class="fig diagram-fig">
       <div class="diagram">
-        <svg viewBox="0 0 1000 404" role="img" aria-labelledby="pf-title pf-desc">
-          <title id="pf-title">Wall time per pipeline stage for one scene</title>
-          <desc id="pf-desc">_predict_full_scene dominates at 205.3 seconds, 72% of the total. preprocess takes
-            25.8 s, cloud_pixel_mask 21.3 s and _align_to_mosaic 19.1 s. Reading and decoding the four JPEG2000
-            bands takes 10.7 s. Everything else is under 2 seconds.</desc>
+        <svg viewBox="0 0 1000 450" role="img" aria-labelledby="pf-title pf-desc">
+          <title id="pf-title">Wall time per pipeline stage, before and after the fixes</title>
+          <desc id="pf-desc">_predict_full_scene falls from 205.3 to 92.3 seconds, preprocess from 25.8 to 4.1,
+            cloud_pixel_mask from 21.3 to 6.2 and _align_to_mosaic from 19.1 to 2.2. The whole-scene cast in
+            to_model_input is removed entirely. Reading and decoding the four JPEG2000 bands is unchanged at
+            about 10.5 seconds and is now the second largest stage. Total falls from 286.5 to 121.6 seconds.</desc>
           <line class="d-sep" x1="306" y1="30" x2="956" y2="30"></line>
-          <text class="pf-axis" x="306" y="22">seconds of wall clock, one date, one tile</text>
-          <text class="pf-name" x="292" y="50" text-anchor="end">_predict_full_scene</text>
-          <text class="pf-sub" x="292" y="63" text-anchor="end">1 764 tiles, batch of 1</text>
-          <rect class="pf-bar pf-hot" x="306" y="40" width="560.0" height="16" rx="3"></rect>
-          <text class="pf-val" x="876.0" y="53">205.2s<tspan class="pf-share"> &nbsp;72%</tspan></text>
-          <text class="pf-name" x="292" y="84" text-anchor="end">preprocess</text>
-          <text class="pf-sub" x="292" y="97" text-anchor="end">percentile stretch + gray world</text>
-          <rect class="pf-bar" x="306" y="74" width="70.3" height="16" rx="3"></rect>
-          <text class="pf-val" x="386.3" y="87">25.8s<tspan class="pf-share"> &nbsp;9%</tspan></text>
-          <text class="pf-name" x="292" y="118" text-anchor="end">cloud_pixel_mask</text>
-          <text class="pf-sub" x="292" y="131" text-anchor="end">morphology + distance transform</text>
-          <rect class="pf-bar" x="306" y="108" width="58.2" height="16" rx="3"></rect>
-          <text class="pf-val" x="374.2" y="121">21.3s<tspan class="pf-share"> &nbsp;7%</tspan></text>
-          <text class="pf-name" x="292" y="152" text-anchor="end">_align_to_mosaic</text>
-          <text class="pf-sub" x="292" y="165" text-anchor="end">per-channel gain and offset</text>
-          <rect class="pf-bar" x="306" y="142" width="52.0" height="16" rx="3"></rect>
-          <text class="pf-val" x="368.0" y="155">19.1s<tspan class="pf-share"> &nbsp;7%</tspan></text>
-          <text class="pf-name" x="292" y="186" text-anchor="end">load_and_stack</text>
-          <text class="pf-sub" x="292" y="199" text-anchor="end">4 x JPEG2000 decode</text>
-          <rect class="pf-bar" x="306" y="176" width="29.3" height="16" rx="3"></rect>
-          <text class="pf-val" x="345.3" y="189">10.7s<tspan class="pf-share"> &nbsp;4%</tspan></text>
-          <text class="pf-name" x="292" y="220" text-anchor="end">to_model_input</text>
-          <text class="pf-sub" x="292" y="233" text-anchor="end">uint16 to float32, whole scene</text>
-          <rect class="pf-bar" x="306" y="210" width="5.1" height="16" rx="3"></rect>
-          <text class="pf-val" x="321.1" y="223">1.9s<tspan class="pf-share"> &nbsp;1%</tspan></text>
-          <text class="pf-name" x="292" y="254" text-anchor="end">load_cirrus_reflectance</text>
-          <text class="pf-sub" x="292" y="267" text-anchor="end">B10 read + upsample</text>
-          <rect class="pf-bar" x="306" y="244" width="3.4" height="16" rx="3"></rect>
-          <text class="pf-val" x="319.4" y="257">1.2s<tspan class="pf-share"> &nbsp;0%</tspan></text>
-          <text class="pf-name" x="292" y="288" text-anchor="end">_contamination_score</text>
-          <text class="pf-sub" x="292" y="301" text-anchor="end">blue + cirrus</text>
-          <rect class="pf-bar" x="306" y="278" width="2.1" height="16" rx="3"></rect>
-          <text class="pf-val" x="318.1" y="291">0.8s<tspan class="pf-share"> &nbsp;0%</tspan></text>
-          <text class="pf-name" x="292" y="322" text-anchor="end">estimate_contamination</text>
-          <text class="pf-sub" x="292" y="335" text-anchor="end">overview sample</text>
-          <rect class="pf-bar" x="306" y="312" width="2.0" height="16" rx="3"></rect>
-          <text class="pf-val" x="318.0" y="325">0.4s<tspan class="pf-share"> &nbsp;0%</tspan></text>
-          <text class="pf-name" x="292" y="356" text-anchor="end">load checkpoint</text>
-          <text class="pf-sub" x="292" y="369" text-anchor="end">0.5 M parameters</text>
-          <rect class="pf-bar" x="306" y="346" width="2.0" height="16" rx="3"></rect>
-          <text class="pf-val" x="318.0" y="359">0.1s<tspan class="pf-share"> &nbsp;0%</tspan></text>
+          <text class="pf-axis" x="306" y="22">seconds of wall clock, one date, one tile &mdash; faint bar before, solid bar after</text>
+          <text class="pf-name" x="292" y="54" text-anchor="end">_predict_full_scene</text>
+          <text class="pf-sub" x="292" y="67" text-anchor="end">1 764 tiles, batch of 16</text>
+          <rect class="pf-was" x="306" y="44" width="400.0" height="7" rx="2"></rect>
+          <rect class="pf-bar pf-hot" x="306" y="54" width="179.8" height="7" rx="2"></rect>
+          <text class="pf-val" x="716.0" y="59">205.2s &#8594; 92.3s<tspan class="pf-gain"> &nbsp;2.2x faster</tspan></text>
+          <text class="pf-name" x="292" y="94" text-anchor="end">preprocess</text>
+          <text class="pf-sub" x="292" y="107" text-anchor="end">percentile stretch + haze</text>
+          <rect class="pf-was" x="306" y="84" width="50.2" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="94" width="8.0" height="7" rx="2"></rect>
+          <text class="pf-val" x="366.2" y="99">25.8s &#8594; 4.1s<tspan class="pf-gain"> &nbsp;6.3x faster</tspan></text>
+          <text class="pf-name" x="292" y="134" text-anchor="end">cloud_pixel_mask</text>
+          <text class="pf-sub" x="292" y="147" text-anchor="end">morphology + distance transform</text>
+          <rect class="pf-was" x="306" y="124" width="41.5" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="134" width="12.1" height="7" rx="2"></rect>
+          <text class="pf-val" x="357.5" y="139">21.3s &#8594; 6.2s<tspan class="pf-gain"> &nbsp;3.4x faster</tspan></text>
+          <text class="pf-name" x="292" y="174" text-anchor="end">_align_to_mosaic</text>
+          <text class="pf-sub" x="292" y="187" text-anchor="end">per-channel gain and offset</text>
+          <rect class="pf-was" x="306" y="164" width="37.1" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="174" width="4.2" height="7" rx="2"></rect>
+          <text class="pf-val" x="353.1" y="179">19.1s &#8594; 2.2s<tspan class="pf-gain"> &nbsp;8.8x faster</tspan></text>
+          <text class="pf-name" x="292" y="214" text-anchor="end">load_and_stack</text>
+          <text class="pf-sub" x="292" y="227" text-anchor="end">4 x JPEG2000 decode</text>
+          <rect class="pf-was" x="306" y="204" width="20.9" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="214" width="20.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="336.9" y="219">10.7s &#8594; 10.5s<tspan class="pf-gain"> &nbsp;unchanged</tspan></text>
+          <text class="pf-name" x="292" y="254" text-anchor="end">to_model_input</text>
+          <text class="pf-sub" x="292" y="267" text-anchor="end">whole-scene cast, now deleted</text>
+          <rect class="pf-was" x="306" y="244" width="3.6" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="254" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="259">1.9s &#8594; 0.0s<tspan class="pf-gain"> &nbsp;removed</tspan></text>
+          <text class="pf-name" x="292" y="294" text-anchor="end">load_cirrus_reflectance</text>
+          <text class="pf-sub" x="292" y="307" text-anchor="end">B10 read + upsample</text>
+          <rect class="pf-was" x="306" y="284" width="2.4" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="294" width="1.7" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="299">1.2s &#8594; 0.87s<tspan class="pf-gain"> &nbsp;1.4x faster</tspan></text>
+          <text class="pf-name" x="292" y="334" text-anchor="end">_contamination_score</text>
+          <text class="pf-sub" x="292" y="347" text-anchor="end">blue + cirrus</text>
+          <rect class="pf-was" x="306" y="324" width="1.5" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="334" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="339">0.77s &#8594; 0.47s<tspan class="pf-gain"> &nbsp;1.6x faster</tspan></text>
+          <text class="pf-name" x="292" y="374" text-anchor="end">estimate_contamination</text>
+          <text class="pf-sub" x="292" y="387" text-anchor="end">overview sample</text>
+          <rect class="pf-was" x="306" y="364" width="0.8" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="374" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="379">0.43s &#8594; 0.43s<tspan class="pf-gain"> &nbsp;unchanged</tspan></text>
+          <text class="pf-name" x="292" y="414" text-anchor="end">load checkpoint</text>
+          <text class="pf-sub" x="292" y="427" text-anchor="end">0.5 M parameters</text>
+          <rect class="pf-was" x="306" y="404" width="0.1" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="414" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="419">0.07s &#8594; 0.11s<tspan class="pf-gain"> &nbsp;</tspan></text>
         </svg>
       </div>
-      <figcaption><span class="fignum">Fig. 2</span> Total 286.5&nbsp;s. The first bar is the model; the next
-        three are NumPy and SciPy on a single core.</figcaption>
+      <figcaption><span class="fignum">Fig. 2</span> Total 286.5&nbsp;s &rarr; 121.6&nbsp;s. The model is still
+        the largest stage, but decoding the four bands off disk is now second &mdash; the point past which
+        this pipeline is waiting on I/O rather than on itself.</figcaption>
     </figure>
 
     <h3>Resources per stage</h3>
     <div class="table-wrap">
       <table class="bands profile">
-        <thead><tr><th>Stage</th><th>Time</th><th>Peak RSS</th><th>CPU</th><th>Reading</th></tr></thead>
+        <thead><tr><th>Stage</th><th>Time</th><th>CPU</th><th>What changed</th></tr></thead>
         <tbody>
-          <tr><td><code>_predict_full_scene</code></td><td>205.3&nbsp;s</td><td>3.9&nbsp;GB</td><td>625%</td><td>8 torch threads of 16 logical cores</td></tr>
-          <tr><td><code>preprocess</code></td><td>25.8&nbsp;s</td><td>11.7&nbsp;GB</td><td>100%</td><td><span class="tag">1 core</span> percentiles over 120&nbsp;Mpx</td></tr>
-          <tr><td><code>cloud_pixel_mask</code></td><td>21.3&nbsp;s</td><td>9.1&nbsp;GB</td><td>100%</td><td><span class="tag">1 core</span> EDT returns float64</td></tr>
-          <tr><td><code>_align_to_mosaic</code></td><td>19.1&nbsp;s</td><td>10.5&nbsp;GB</td><td>98%</td><td><span class="tag">1 core</span> masked std/mean &times; 3</td></tr>
-          <tr><td><code>load_and_stack</code></td><td>10.7&nbsp;s</td><td>2.2&nbsp;GB</td><td>1074%</td><td>GDAL decodes in parallel &mdash; not the problem</td></tr>
-          <tr><td><code>to_model_input</code></td><td>1.9&nbsp;s</td><td>4.9&nbsp;GB</td><td>101%</td><td>allocates a 1.93&nbsp;GB float32 twin of the scene</td></tr>
+          <tr><td><code>_predict_full_scene</code></td><td>205.3 &rarr; 92.3&nbsp;s</td><td>625% &rarr; <b>1324%</b></td><td>batch of 16, <code>inference_mode</code>, 16 threads</td></tr>
+          <tr><td><code>preprocess</code></td><td>25.8 &rarr; 4.1&nbsp;s</td><td><span class="tag">1 core</span> 100%</td><td>percentiles on a 1/16 subsample, in place</td></tr>
+          <tr><td><code>cloud_pixel_mask</code></td><td>21.3 &rarr; 6.2&nbsp;s</td><td><span class="tag">1 core</span> 98%</td><td>distance transform on a 4&times; coarser grid</td></tr>
+          <tr><td><code>_align_to_mosaic</code></td><td>19.1 &rarr; 2.2&nbsp;s</td><td><span class="tag">1 core</span> 101%</td><td>gain and offset fitted on a subsample</td></tr>
+          <tr><td><code>load_and_stack</code></td><td>10.7 &rarr; 10.5&nbsp;s</td><td>1071%</td><td>untouched &mdash; GDAL already decodes in parallel</td></tr>
+          <tr><td><code>to_model_input</code></td><td>1.9 &rarr; 0&nbsp;s</td><td>&mdash;</td><td>stage deleted; the cast moved into the tile loop</td></tr>
         </tbody>
       </table>
     </div>
 
-    <div class="callout finding">
-      <span class="label">Bottleneck 1 &mdash; inference, 72% of the run</span>
+    <div class="callout fixed">
+      <span class="label">Bottleneck 1 &mdash; inference, was 72% of the run</span>
       <p>
-        1&nbsp;764 tiles go through the network <b>one at a time</b>: 116&nbsp;ms each, at 625% CPU on a
-        machine that offers 1600%. Two things are free to fix. The forward pass runs <b>without</b>
-        <code>torch.no_grad()</code> or <code>inference_mode</code>, so autograd builds and keeps a graph for
-        every one of those 1&nbsp;764 tiles that is never differentiated. And a batch of 1 leaves the vectorised
-        path idle &mdash; a 0.5&nbsp;M-parameter U-Net on 256&nbsp;px input is small enough that batching 16 or 32
-        tiles is a pure win on CPU, before any question of hardware.
+        1&nbsp;764 tiles went through the network <b>one at a time</b>, at 625% CPU on a machine that offers
+        1600%. Three changes, in ascending order of surprise. The forward pass ran <b>without</b>
+        <code>torch.no_grad()</code>, so autograd built and kept a graph for every one of those tiles that was
+        never differentiated; <code>inference_mode</code> alone is worth 1.4&times;. Batching 16 tiles per
+        forward instead of 1 brings it to 1.7&times; &mdash; 8, 32 and 64 all measured slower, so 16 is the
+        setting rather than a round number. And torch's default thread count is one per <i>physical</i> core,
+        the usual advice for bandwidth-bound convolution, which is simply wrong here: 8 threads gives
+        59&nbsp;ms per tile, 12 gives 47 and 16 gives 48. A 256&nbsp;px tile is small enough that much of each
+        pass is latency rather than saturated arithmetic, and the second thread on a core fills it. Together:
+        <b>82.7&nbsp;ms per tile down to 39.5, at 1456% CPU instead of 772%.</b>
       </p>
     </div>
 
-    <div class="callout finding">
-      <span class="label">Bottleneck 2 &mdash; 66 seconds on one core</span>
+    <div class="callout fixed">
+      <span class="label">Bottleneck 2 &mdash; was 66 seconds on one core</span>
       <p>
-        <code>preprocess</code>, <code>cloud_pixel_mask</code> and <code>_align_to_mosaic</code> together are
-        23% of the run and every one of them pins exactly one core. The worst offender is cheap to fix:
-        the contrast stretch calls <code>np.percentile</code> on 120&nbsp;Mpx per channel, which sorts the
-        entire scene to find two numbers &mdash; the 2nd and 98th percentiles of a subsample every 8th pixel
-        are identical to three decimals and roughly sixty times cheaper. The distance transform is harder:
-        SciPy's EDT is single-threaded and returns float64, a 964&nbsp;MB array where float32 would do.
+        <code>preprocess</code>, <code>cloud_pixel_mask</code> and <code>_align_to_mosaic</code> were 23% of the
+        run and each pinned exactly one core. Two of them were doing far more arithmetic than their own output
+        justified: the contrast stretch called <code>np.percentile</code> on 120&nbsp;Mpx per channel &mdash;
+        sorting the entire scene to recover two numbers &mdash; and the radiometric fit reduced a
+        gigabyte-scale masked copy to four scalars. Measured on every 4th pixel of each axis, those statistics
+        agree to <b>0.1%</b> for a sixteenth of the work: 25.8&nbsp;s &rarr; 4.1&nbsp;s and 19.1&nbsp;s &rarr;
+        2.2&nbsp;s.
+      </p>
+      <p style="margin-top:.8rem">
+        The distance transform was the interesting one. SciPy's EDT is single-threaded and returns float64
+        &mdash; a 964&nbsp;MB array &mdash; and only two thresholds are ever read from it, 100&nbsp;px for
+        dilation and 300&nbsp;px for the shadow search. So it now runs on a 4&times;-downsampled grid and only
+        the <i>thresholded booleans</i> are expanded back, which means the float64 distance field never exists
+        at scene resolution. Blocks are OR-pooled and the threshold carries one block of slack, so the
+        approximation can only ever mask <i>more</i> than the exact transform, never less &mdash; the direction
+        that costs a few pixels a later date refills, rather than the one that leaks cloud into the mosaic. On
+        this scene: <b>zero under-masked pixels, 0.21% over-masked</b>, 21.3&nbsp;s &rarr; 6.2&nbsp;s.
       </p>
     </div>
 
-    <div class="callout caution">
-      <span class="label">Bottleneck 3 &mdash; memory that only grows</span>
+    <div class="callout fixed">
+      <span class="label">Bottleneck 3 &mdash; memory that only grew</span>
       <p>
-        Peak resident memory is <b>11.7&nbsp;GB for a 964&nbsp;MB scene</b> &mdash; a 12&times; amplification, and it
-        climbs monotonically because nothing is released between stages. The scene is held simultaneously as
-        uint16 (964&nbsp;MB), as a float32 model input (1.93&nbsp;GB), as a float32 display composite
-        (1.45&nbsp;GB), as its aligned copy (another 1.45&nbsp;GB), plus probability, cirrus, NIR and score
-        planes at 482&nbsp;MB each. The float32 twin is the pointless one: the model consumes 256&nbsp;px tiles,
-        so the cast belongs <i>inside</i> the tile loop, not on the whole scene. On a 16&nbsp;GB laptop this
-        pipeline is one array away from swapping.
+        Peak resident memory was <b>11.7&nbsp;GB for a 964&nbsp;MB scene</b>, and it climbed monotonically
+        because nothing was released between stages. Four things were holding it up. The whole-scene float32
+        twin was pointless &mdash; the model consumes 256&nbsp;px tiles, so the cast belongs inside the tile
+        loop, which deletes a 1.93&nbsp;GB allocation outright. The per-date cloud masks were kept as float32
+        RGB purely to be written out as grayscale previews, growing the run by 1.4&nbsp;GB per date; one uint8
+        channel is 12&times; smaller and produces the same PNG. And each stage now drops its arrays before the
+        next allocates, so peak tracks the working set rather than the whole run.
+      </p>
+      <p style="margin-top:.8rem">
+        The fourth was hiding in plain sight: <code>np.percentile</code> returns <code>np.float64</code>
+        scalars, and NumPy promotes on those rather than treating them as weak. Subtracting one from the
+        float32 mosaic silently returned a <b>float64</b> array &mdash; the final image, and the largest
+        allocation in the pipeline, was quietly double width for want of a <code>float()</code>. Over two
+        dates: <b>22.5&nbsp;GB down to 10.1&nbsp;GB</b>.
       </p>
     </div>
 
@@ -435,31 +472,31 @@
       <p>
         The installed wheel is <code>torch 2.7.0+cpu</code>: there is no CUDA runtime in this environment, so
         the GPU is not underused, it is unreachable. That is a defensible choice for a pipeline whose unit of
-        work is a 450&nbsp;MB download, and it is why the two fixes above matter &mdash; they are worth roughly
-        the same as moving to a GPU while changing nothing about the deployment. It also sets the ceiling:
-        even if inference dropped to zero, one date would still cost 81&nbsp;s, and 66 of those are single-core
-        NumPy.
+        work is a 450&nbsp;MB download, and it is why the fixes above mattered &mdash; they were worth roughly
+        the same as moving to a GPU while changing nothing about the deployment.
       </p>
     </div>
 
-    <h3>What I would fix, in order</h3>
+    <h3>What is left</h3>
     <ol class="steps">
-      <li><b><code>torch.inference_mode()</code> around the forward pass</b> &mdash; one line, removes autograd
-        bookkeeping from 1&nbsp;764 calls.</li>
-      <li><b>Batch the tiles</b> &mdash; 16&ndash;32 per forward instead of 1.</li>
-      <li><b>Cast per tile, not per scene</b> &mdash; deletes a 1.93&nbsp;GB allocation outright.</li>
-      <li><b>Subsample the percentiles</b> &mdash; the stretch stops sorting 120&nbsp;Mpx three times.</li>
-      <li><b>float32 EDT, or a coarser dilation grid</b> &mdash; halves the largest post-processing array.</li>
-      <li><b>Release each stage's arrays</b> before the next allocates, so peak tracks the working set rather
-        than the whole run.</li>
+      <li><b>Decoding is now the floor.</b> <code>load_and_stack</code> is unchanged at 10.5&nbsp;s and has
+        gone from 4% of the run to 9%. It already runs at 1071% CPU, so what is left there is the disk and the
+        JPEG2000 codec, not the code.</li>
+      <li><b><code>remove_small_objects</code> is what remains of the cloud mask.</b> Of the 6.2&nbsp;s that
+        stage still costs, most is now connected-component labelling over 120&nbsp;Mpx, single-threaded, with
+        an integer label array to match. Coarsening that too would change what <code>min_cloud_size</code>
+        means, so it is left alone deliberately.</li>
+      <li><b>The three NumPy stages still pin one core.</b> They are 12&nbsp;s rather than 66, so the remaining
+        prize is small &mdash; but nothing here was parallelised across cores, only made to do less work.</li>
     </ol>
 
     <p class="aside">
-      Caveat, stated because it changes how these numbers should be read: the machine was running a second
-      inference job throughout the measurement. Absolute wall times are therefore pessimistic by an unknown
-      margin. The <i>shape</i> &mdash; which stage dominates, which stages are single-threaded, how memory
-      accumulates &mdash; is unaffected, and that shape is what the fixes above target.
-    </p>
+      Caveat, stated because it changes how these numbers should be read: the original measurement ran with a
+      second inference job on the machine, so the per-stage "before" wall times are pessimistic by an unknown
+      margin. The before/after totals quoted at the top &mdash; 451&nbsp;s &rarr; 262&nbsp;s and 22.5&nbsp;GB
+      &rarr; 10.1&nbsp;GB &mdash; come from running the old and the new code back to back over the same two
+      dates on an otherwise idle machine, and are the ones to trust. Both runs produce the same mosaic: the
+      same white-point gains to three decimals, and 95.90% of the scene filled against 95.89%.</p>
   </div>
 </section>
 

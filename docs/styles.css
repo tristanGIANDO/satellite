@@ -510,6 +510,8 @@ table.runs td:first-child { font-family: var(--mono); color: var(--accent); }
 .pf-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-3); }
 .pf-bar { fill: #3987e5; opacity: .85; }
 .pf-bar.pf-hot { fill: var(--accent); opacity: 1; }
+.pf-was { fill: var(--ink-3); opacity: .3; }
+.pf-gain { fill: var(--ok); }
 .pf-val { font-family: var(--mono); font-size: 11px; fill: var(--ink-2); }
 .pf-share { fill: var(--ink-3); }
 .pf-axis { font-family: var(--mono); font-size: 10px; fill: var(--ink-3); }

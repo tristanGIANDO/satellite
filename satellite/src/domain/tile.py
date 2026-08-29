@@ -7,6 +7,14 @@ from skimage.morphology import remove_small_objects
 
 DEFAULT_TILE_SIZE = 256
 
+# The cloud distance transform is computed on a grid this many times coarser than the scene.
+# SciPy's EDT is single-threaded and returns float64, so at full resolution it spends 21 s
+# producing a 964 MB array from which only two thresholds -- 100 px and 300 px -- are ever read.
+# Coarsening by 4 makes it ~16x cheaper and bounds the error on those thresholds at a few pixels,
+# always on the conservative side: blocks are OR-pooled, so a coarse cloud is never smaller than
+# the real one and the mask never shrinks below what the full-resolution transform would give.
+DISTANCE_COARSENING = 4
+
 
 @dataclass
 class Tile:
@@ -99,15 +107,15 @@ def cloud_pixel_mask(
     if not cleaned.any():
         return cleaned
 
-    distance_to_cloud = distance_transform_edt(~cleaned)
-    unusable = distance_to_cloud <= dilation_radius
+    unusable, near_enough_for_shadow = _within_distance_of(
+        cleaned, (dilation_radius, shadow_search_radius), DISTANCE_COARSENING
+    )
 
     if nir_reflectance is not None:
         unusable |= _shadow_mask(
             nir_reflectance,
             green_reflectance,
-            distance_to_cloud,
-            shadow_search_radius,
+            near_enough_for_shadow,
             shadow_darkness_ratio,
             water_index_threshold,
         )
@@ -115,11 +123,39 @@ def cloud_pixel_mask(
     return unusable
 
 
+def _within_distance_of(cloud: np.ndarray, radii: tuple[int, ...], factor: int) -> list[np.ndarray]:
+    """For each radius, a full-resolution mask of the pixels within that distance of `cloud`.
+
+    The transform runs on a `factor`-downsampled copy and only the *thresholded* results are
+    expanded back, so the float64 distance field never exists at scene resolution -- the arrays
+    that cross back to full size are booleans, an eighth of the width and a sixteenth of the count.
+    """
+    height, width = cloud.shape
+    pad_y, pad_x = -height % factor, -width % factor
+    padded = np.pad(cloud, ((0, pad_y), (0, pad_x)))
+    blocks = padded.reshape((height + pad_y) // factor, factor, (width + pad_x) // factor, factor)
+    coarse = blocks.any(axis=(1, 3))
+
+    distance = distance_transform_edt(~coarse) * factor
+
+    # One block of slack on the threshold. OR-pooling can only grow the cloud, so the coarse
+    # distance never overstates how far a pixel is -- but it is quantised to the block grid, which
+    # on its own would drop a thin rim of pixels that the exact transform keeps. Erring outward
+    # costs a few usable pixels that a later date refills; erring inward leaks cloud into the
+    # mosaic, which is the failure that shows.
+    margin = float(factor) * np.sqrt(2.0)
+
+    masks = []
+    for radius in radii:
+        near = np.repeat(np.repeat(distance <= radius + margin, factor, axis=0), factor, axis=1)
+        masks.append(near[:height, :width])
+    return masks
+
+
 def _shadow_mask(
     nir_reflectance: np.ndarray,
     green_reflectance: np.ndarray | None,
-    distance_to_cloud: np.ndarray,
-    search_radius: int,
+    near_enough_for_shadow: np.ndarray,
     darkness_ratio: float,
     water_index_threshold: float,
 ) -> np.ndarray:
@@ -130,13 +166,14 @@ def _shadow_mask(
     They are told apart by the normalised difference water index, which compares green against
     near-infrared -- water is the one dark surface that stays comparatively bright in green.
     """
-    lit_ground = distance_to_cloud > search_radius
+    lit_ground = ~near_enough_for_shadow
     if lit_ground.sum() < 10_000:
-        return np.zeros_like(distance_to_cloud, dtype=bool)
+        return np.zeros_like(near_enough_for_shadow, dtype=bool)
 
     typical_nir = float(np.median(nir_reflectance[lit_ground]))
+    del lit_ground
     is_dark = nir_reflectance < darkness_ratio * typical_nir
-    shadow = is_dark & (distance_to_cloud <= search_radius)
+    shadow = is_dark & near_enough_for_shadow
 
     if green_reflectance is not None:
         water_index = (green_reflectance - nir_reflectance) / (green_reflectance + nir_reflectance + 1e-6)

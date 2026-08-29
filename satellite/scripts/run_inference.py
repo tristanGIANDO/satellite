@@ -2,6 +2,8 @@ import logging
 from datetime import date, datetime
 from pathlib import Path
 
+import numpy as np
+
 from satellite.src.application.pipelines import run_inference_pipeline
 from satellite.src.domain.tile import split_mosaic_checkpoint
 from satellite.src.infrastructure.jp2 import JP2StackedImage
@@ -68,7 +70,10 @@ def main(
         output_path = Path(f"output/{tile_code}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}.png")
     image_service.save_as_rgb(result, output_path)
 
-    for date_label, mask_image in cloud_masks_by_date.items():
+    # Held as a single uint8 channel to keep a full scene per date affordable; the preview is
+    # grayscale, so the three RGB channels are only materialised at the moment of writing.
+    for date_label, mask in cloud_masks_by_date.items():
+        mask_image = np.repeat(mask[..., np.newaxis], 3, axis=-1).astype(np.float32) / 255.0
         image_service.save_as_rgb(mask_image, Path(f"output/masks/{tile_code}_{date_label}.png"))
     logger.info(f"Saved {len(cloud_masks_by_date)} cloud mask(s) to output/masks/")
 
