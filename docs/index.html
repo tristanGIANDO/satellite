@@ -8,7 +8,7 @@
 <meta name="author" content="Tristan Giandoriggio" />
 <meta property="og:title" content="Satellite — Removing clouds from Sentinel-2" />
 <meta property="og:description" content="Training a cloud segmentation U-Net and compositing a cloud-free mosaic, per pixel." />
-<meta property="og:image" content="assets/mosaic_202506_final.jpg" />
+<meta property="og:image" content="assets/cover_seine_valley.jpg" />
 <meta property="og:type" content="website" />
 <link rel="icon" href="assets/logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -26,12 +26,14 @@
     <span>satellite</span>
   </a>
   <nav class="tabs" aria-label="Sections">
+    <a href="#result">Result</a>
     <a href="#question">Question</a>
     <a href="#data">Data</a>
     <a href="#model">Model</a>
     <a href="#masks">Masks</a>
     <a href="#mosaic">Mosaic</a>
     <a href="#residuals">Residuals</a>
+    <a href="#year">Year</a>
     <a href="#next">Next</a>
   </nav>
   <a class="repo" href="https://github.com/tristanGIANDO/satellite">GitHub ↗</a>
@@ -56,12 +58,42 @@
       June 2025 is simply the run I have the most evidence for.
     </p>
     <ul class="stats">
-      <li><b>95.3%</b><span>of a tile recovered</span></li>
-      <li><b>14</b><span>dates, one month</span></li>
+      <li><b>95.9%</b><span>of a tile recovered</span></li>
+      <li><b>15</b><span>dates, one month</span></li>
       <li><b>4+1</b><span>bands: RGB, NIR, cirrus</span></li>
       <li><b>2 args</b><span>to point it anywhere</span></li>
     </ul>
     <p class="byline">Tristan Giandoriggio · first project in PyTorch, first with real satellite data</p>
+  </div>
+</section>
+
+<!-- ───────────────────────────── result first ───────────────────────────── -->
+<section id="result" class="entry result">
+  <div class="rail"></div>
+  <div class="body">
+    <h2>The result, first</h2>
+    <p class="claim">
+      Same 110&nbsp;km of ground, same month. On the left, the best single day the satellite gave.
+      On the right, what a month of passes adds up to.
+    </p>
+
+    <div class="compare"
+         data-before="assets/june_before_clouds.jpg"
+         data-after="assets/mosaic_202506_final.jpg"
+         data-label-before="One pass · 5 June"
+         data-label-after="One month · June 2025">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Tile <code>31UDQ</code>, June 2025. The pass on the left is not a bad
+        one by local standards — 4% of it is usable ground. The composite on the right is 95.9% ground, and
+        every pixel in it was actually photographed: nothing here is generated, inferred or painted in.
+      </figcaption>
+    </div>
+
+    <p>
+      That is the whole claim of this project, and the rest of the page is how it is arrived at: what decides
+      that a pixel is cloud, which of a month's looks at the same ground is kept, and why getting the colour
+      to agree across dates turned out to be harder than finding the clouds.
+    </p>
   </div>
 </section>
 
@@ -132,10 +164,10 @@
         <thead><tr><th>Band</th><th>Sentinel-2</th><th>Resolution</th><th>Role here</th></tr></thead>
         <tbody>
           <tr><td>Red</td><td><code>B04</code></td><td>10 m</td><td>model input · display</td></tr>
-          <tr><td>Green</td><td><code>B03</code></td><td>10 m</td><td>model input · display</td></tr>
+          <tr><td>Green</td><td><code>B03</code></td><td>10 m</td><td>model input · display · water index</td></tr>
           <tr><td>Blue</td><td><code>B02</code></td><td>10 m</td><td>model input · display · contamination score</td></tr>
           <tr><td>Near-infrared</td><td><code>B08</code></td><td>10 m</td><td>model input · shadow detection</td></tr>
-          <tr><td>Cirrus</td><td><code>B10</code></td><td>60 m</td><td>thin-cloud veto <span class="tag">added late</span></td></tr>
+          <tr><td>Cirrus</td><td><code>B10</code></td><td>60 m</td><td>thin-cloud veto · date ranking <span class="tag">added late</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -390,7 +422,44 @@
         boundary is optimistic.</li>
       <li><b>Shadows</b> — pixels abnormally dark in NIR (below 0.7× the scene median) and within 300&nbsp;px
         of a cloud are its shadow. Shadows are not clouds and no network here was ever trained to find them.</li>
+      <li><b>…except water</b> — which fits that description exactly, and was being deleted for it. Rivers
+        and lakes are spared by the water index <code>(green − NIR)/(green + NIR)</code>: water is the one
+        dark surface that stays comparatively bright in green. Threshold 0.12, measured rather than taken
+        from a textbook — see below.</li>
     </ol>
+
+    <div class="callout caution">
+      <span class="label">Measure, don't assume</span>
+      <p>
+        The textbook water test is "NIR below ~0.05". Applied here it found <b>zero</b> water in a tile the
+        Seine runs straight through, and I nearly concluded there was none to protect. Sentinel-2 L1C is
+        top-of-atmosphere: scattering lifts every reading, and the Seine sits at <b>0.155</b> in NIR — dark
+        enough to trip the shadow test at 0.7× the scene median, nowhere near dark enough for the textbook
+        cutoff. Locating water by its actual signature instead — the darkest 0.1% of the scene in NIR — put
+        it at a water index of 0.14–0.26, against barely any built-up pixel above 0.12. Hence the threshold.
+      </p>
+    </div>
+
+    <div class="callout finding">
+      <span class="label">Finding — the cheapest band in the pipeline</span>
+      <p>
+        <code>B10</code> is a 2&nbsp;MB file at 60&nbsp;m and it does what the network cannot. At 1375&nbsp;nm
+        water vapour absorbs everything on the way down and back, so <b>the ground is invisible</b> — whatever
+        the band reads is high cloud. Measured on 1 June: the network alone flags <b>3.4%</b> of the scene,
+        the two together flag <b>54.5%</b>, and on a clear date the band flags <b>0.000%</b> of central Paris.
+        A detector with no urban false positives at all, precisely where the network has its worst ones.
+      </p>
+    </div>
+
+    <div class="callout caution">
+      <span class="label">Detail</span>
+      <p>
+        <code>B10</code>'s zero point moved between processing baselines — recent L1C adds a +1000 offset to
+        every band — so a hard-coded threshold silently means different things on different scenes. The
+        baseline is read off each scene instead: since the ground contributes nothing at that wavelength, the
+        darkest pixels <i>are</i> the zero. Self-calibrating, and one line shorter than a version table.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -400,7 +469,7 @@
   <div class="body">
     <h2>Mosaic — three attempts at the same month</h2>
     <p>
-      June 2025, tile <code>31UDQ</code>, 14 dates with all bands available. Same input every time; only the
+      June 2025, tile <code>31UDQ</code>, 15 dates with all bands available. Same input every time; only the
       selection rule changed.
     </p>
 
@@ -492,48 +561,191 @@
       </p>
       <p>
         The pixels that go into the mosaic are not the model's input. The network reads raw reflectance
-        divided by 65 535, exactly as it was trained; the visible composite is built separately — a 2nd–98th
-        percentile stretch per channel, then a Gray World balance. Two images, one decision.
+        divided by 65 535, exactly as it was trained; the visible composite is built separately. Two images,
+        one decision. At this stage the visible one was a 2nd–98th percentile stretch <i>per channel</i>
+        followed by a Gray World balance — a recipe that turns out to be the single most destructive thing in
+        the pipeline, for reasons that took iteration 4 to understand.
       </p>
       <p>
-        Radiometry is then matched not to a fixed reference image but <b>to the mosaic itself</b>: each new
-        date is fitted with a per-channel gain and offset over the pixels where it overlaps what is already
-        placed. That is why the seams are gone rather than merely smaller — every date is rescaled into the
-        same photometric frame as its neighbours, by construction.
+        Radiometry is matched not to a fixed reference image but <b>to the mosaic itself</b>: each new date is
+        fitted with a gain and offset over the pixels where it overlaps what is already placed. That is why
+        the seams are gone rather than merely smaller — every date is rescaled into the same photometric frame
+        as its neighbours, by construction.
       </p>
 
-      <div class="compare" id="compare" data-before="assets/mosaic_202506_step01.jpg" data-after="assets/mosaic_202506_final.jpg">
+      <div class="compare" id="compare" data-before="assets/mosaic_202506_step01.jpg"
+           data-after="assets/mosaic_202506_final.jpg"
+           data-label-before="Tile-level" data-label-after="Per-pixel">
         <figcaption class="compare-cap">
-          <span class="fignum">Fig. 14</span> Drag: tile-level selection (left) against the final per-pixel composite (right). Same tile, same 14 dates.
+          <span class="fignum">Fig. 14</span> Drag: tile-level selection (left) against the final per-pixel composite (right). Same tile, same 15 dates.
         </figcaption>
+      </div>
+    </div>
+
+    <div class="iteration">
+      <h3><span class="it">Iteration 4</span> The image was clean and still wrong</h3>
+      <p>
+        With the veto stack and the ranking in place, the composite had no cloud left in it — and looked
+        nothing like a photograph. It was dark, flat, and Paris was <b>violet</b>. Three separate causes, each
+        one a lesson about measuring statistics on the wrong pixels.
+      </p>
+
+      <h4>Cloud was setting the exposure</h4>
+      <p>
+        The stretch and the balance measured their percentiles over the <i>whole</i> scene, cloud included.
+        Cloud is brighter than any ground, so it owned the top of the range and pushed the landscape into the
+        dark half; being near-neutral, it also dragged the three channel means together, which is exactly what
+        a Gray World balance then locks in. The mask that decides which pixels are usable was already
+        computed — it simply was not being passed to the code that measures the image.
+      </p>
+      <div class="table-wrap">
+        <table class="bands">
+          <thead><tr><th>6 June, statistics measured over…</th><th>p98</th><th>Channel spread</th></tr></thead>
+          <tbody>
+            <tr><td>the whole scene <span class="tag">before</span></td><td>0.369</td><td>0.021</td></tr>
+            <tr><td>cloud-free pixels only <span class="tag">after</span></td><td>0.948</td><td>0.050</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption-note">
+        Full tonal range restored and 2.4× the colour, from passing one mask into one function. On a clear
+        date the same change moves nothing — there was no cloud there to corrupt the measurement.
+      </p>
+
+      <h4>…and fixing that made it darker</h4>
+      <p>
+        Which was the second cause surfacing. Every date is fitted to the mosaic as it stands, so the
+        <i>first</i> date sets the photometric frame the whole month inherits. Processed in calendar order, the
+        month opened on 1 June: 6% usable, and a tiny overlap for the next date to fit against. Bad gains
+        estimated on unrepresentative samples, compounding date after date.
+      </p>
+      <p>
+        The fix is ordering, not arithmetic: <b>process the clearest date first</b>. Ranking them needs no
+        model — the 60&nbsp;m cirrus band plus a decimated read of blue scores all 15 dates in
+        <b>five seconds</b>, and that is enough to sort them. Starting from a clear date gives every later fit
+        a large, representative overlap; the alignment stops drifting because there is nothing left to drift
+        from.
+      </p>
+
+      <h4>Why the city was violet</h4>
+      <p>
+        The last cause was the interesting one, and it is physics rather than a bug. Sentinel-2 L1C is
+        measured at the <i>top of the atmosphere</i>, so every band carries a haze contribution from
+        atmospheric scattering — strongest at short wavelengths. The raw data is genuinely blue-heavy:
+      </p>
+      <p class="formula"><code>ρ<sub>blue</sub> 0.227 &nbsp;&gt;&nbsp; ρ<sub>green</sub> 0.214 &nbsp;&gt;&nbsp; ρ<sub>red</sub> 0.203</code></p>
+      <p>
+        Normalising each channel to its own range does remove that cast — that is why it was there — but it
+        removes more than the cast. <b>Colour lives in the ratios between bands, and per-channel normalisation
+        is the operation that flattens exactly those ratios.</b> Vegetation came out with red and green equal
+        (olive, not green) and blue left proportionally high, so neutral grey roofs read violet. Gray World
+        finished the job by <i>forcing</i> the channel means equal, which on a scene three-quarters covered in
+        vegetation means multiplying blue up hard.
+      </p>
+      <p>
+        Because atmospheric scattering is <b>additive</b>, it comes out with a subtraction, not a rescale:
+        take each band's own dark value — at those wavelengths the darkest pixels hold no ground signal worth
+        speaking of, so what they read is atmosphere — then apply a <b>single shared gain</b> to all three
+        bands, and a gamma to lift vegetation out of the shadows it otherwise sits in.
+      </p>
+      <p class="formula"><code>ρ′ = ((ρ − p<sub>0.5</sub>(ρ)) / p<sub>98</sub>(ρ′)) <sup>1/2.0</sup></code></p>
+      <figure class="fig">
+        <img src="assets/colour_normalisation.jpg" alt="Central Paris rendered two ways: per-channel stretch with Gray World, cold and violet; and dark-object subtraction with a shared gain, natural beige and green" loading="lazy" />
+        <figcaption><span class="fignum">Fig. 15</span> Same pixels, 13 June. Left: per-channel stretch + Gray World — cold, violet,
+          vegetation drained to olive. Right: per-band dark-object subtraction + shared gain + γ&nbsp;2.0 —
+          limestone reads warm grey, the parks read green, the Seine reads like water.</figcaption>
+      </figure>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          Every one of the three was a statistic measured over the wrong set of pixels: cloud included where
+          it should have been excluded, the worst date used as the anchor instead of the best, and each band
+          measured alone when it is only meaningful against the others. None of them was a modelling problem
+          and none would have shown up in a loss curve.
+        </p>
+      </div>
+      <p>
+        The same logic then applies to the inter-date fit: its gain and offset are <b>shared across the three
+        channels</b>. Fitting each channel separately would let it "correct" the differences that are real
+        colour, quietly re-introducing a cast and accumulating it down the chain — the per-band part of the
+        problem is already handled when each date is normalised on its own.
+      </p>
+    </div>
+
+    <div class="iteration">
+      <h3><span class="it">Iteration 5</span> Grading a series is not grading an image</h3>
+      <p>
+        Iteration 4 fixed the black point of every band. It left the other end untouched, and that shows
+        up as warmth: measured on the finished mosaic, concrete and roofs — surfaces that should be neutral
+        — came out <b>0.168 redder than blue</b>. The blue that dark-object subtraction removes has to be
+        given back somewhere, and nothing was doing it.
+      </p>
+      <p>
+        The counterpart to a black point is a white point, so: find surfaces that ought to be neutral, and
+        apply the gains that make them so. My first attempt took the brightest pixels as that reference and
+        turned the whole month <b>cyan</b>.
+      </p>
+      <div class="callout finding">
+        <span class="label">Finding</span>
+        <p>
+          Bright does not mean neutral. Over a tile that is three-quarters farmland, the brightest surfaces
+          are bare soil and harvested fields, measured at <b>0.34 of saturation</b> — genuinely, correctly
+          warm. Forcing those to grey dumps that much blue over everything. The reference has to be bright
+          <i>and already close to neutral</i>, which is what concrete and roofs are and what a ploughed field
+          is not.
+        </p>
+      </div>
+      <p>
+        Then a second problem, invisible in any single image and obvious the moment twelve are played in
+        sequence: measured independently, each month's gains differ by up to <b>0.17</b>. That reads as the
+        colour sliding around from frame to frame — grading drift dressed up as seasons. One set of gains,
+        the median across the months, is applied to all twelve instead. What moves between frames is then
+        the year, and only the year.
+      </p>
+      <div class="callout caution">
+        <span class="label">A month cannot grade itself</span>
+        <p>
+          Which months get a vote matters too. On a heavily clouded month the bright, spectrally flat
+          surfaces <i>are</i> the clouds, so it measures its own weather and concludes nothing needs
+          correcting — September, October and November each returned gains of almost exactly 1.000. My first
+          filter tried to exclude them by coverage and failed: every month reports ~96% covered, because
+          pixels that were cloudy on every date are filled from their least bad observation rather than left
+          empty. The disqualifying signature is not low coverage, it is that suspiciously perfect 1.000.
+        </p>
       </div>
     </div>
 
     <h3>How the month fills in</h3>
     <p>
-      Each date contributes only what is still missing or still dirty. Coverage is won early and quality
-      keeps improving after coverage saturates.
+      Dates are processed cleanest first, not in calendar order, so the horizontal axis below is a ranking
+      rather than a timeline. Each date contributes only what is still missing or still dirty.
     </p>
 
     <figure class="fig chart-fig">
       <div id="coverage-chart" class="chart" role="img"
-           aria-label="Chart: cumulative mosaic coverage against per-date usable fraction for 14 dates in June 2025. Coverage reaches 48% by 6 June, 94% by 13 June and 95.3% by 26 June."></div>
-      <figcaption><span class="fignum">Fig. 15</span> Bars: fraction of the scene that date could contribute. Line: cumulative coverage of the mosaic.</figcaption>
+           aria-label="Chart: cumulative mosaic coverage against per-date usable fraction for 15 dates in June 2025, processed cleanest first. Coverage reaches 44.9% on the first date, 92.9% on the second, and 95.3% by the tenth."></div>
+      <figcaption><span class="fignum">Fig. 16</span> Bars: fraction of the scene that date could contribute. Line: cumulative coverage of the mosaic.</figcaption>
     </figure>
 
     <div class="callout finding">
       <span class="label">Finding</span>
       <p>
-        <b>Two good dates carry the month.</b> 6 June and 13 June alone take the mosaic from 21% to 94%.
-        The remaining eight dates add 1.1 points of coverage — but they rewrite up to 40% of the pixels with
-        cleaner observations. Coverage and quality saturate at completely different times, which means a
-        pipeline that stops at "the image is full" stops too early.
+        <b>Two dates carry the month.</b> 16 and 13 June alone take the mosaic to <b>92.9%</b>; the thirteen
+        that follow are worth 2.4 points of coverage between them. But they are not wasted: 18 June adds
+        0.4% of new ground while <i>improving</i> 31.8% of the scene, and 11 June improves 23.7% while adding
+        0.1%. Coverage and quality saturate at completely different times, which is the argument against
+        stopping when the image is merely full.
+      </p>
+      <p>
+        It is also the argument for ranking the dates before spending anything on them. The four worst days
+        of the month contribute <b>nothing at all</b> — 0.0% new, 0.0% improved — and each one still costs a
+        450&nbsp;MB download and three minutes of inference to discover that.
       </p>
     </div>
 
     <figure class="fig">
       <img src="assets/mosaic_202506_final.jpg" alt="The final cloud-free mosaic of tile 31UDQ for June 2025" loading="lazy" />
-      <figcaption><span class="fignum">Fig. 16</span> June 2025, tile <code>31UDQ</code>, 95.3% of the scene reconstructed from 14 passes.</figcaption>
+      <figcaption><span class="fignum">Fig. 17</span> June 2025, tile <code>31UDQ</code>, 95.9% of the scene reconstructed from 15 passes.</figcaption>
     </figure>
   </div>
 </section>
@@ -549,7 +761,7 @@
 
     <figure class="fig">
       <img src="assets/mosaic_202506_paris_crop.jpg" alt="Detail of the mosaic over central Paris showing circular holes and the Seine cut out" loading="lazy" />
-      <figcaption><span class="fignum">Fig. 17</span> Central Paris, 28&nbsp;km across. Black is "never usable on any date".</figcaption>
+      <figcaption><span class="fignum">Fig. 18</span> Central Paris, 28&nbsp;km across. Black is "never usable on any date".</figcaption>
     </figure>
 
     <div class="callout caution">
@@ -587,36 +799,105 @@
       certainly a false one. The discs above are what remains when even that fallback has nothing to offer.
     </p>
 
-    <div class="callout caution">
-      <span class="label">Failure 4 — the anchor</span>
+    <div class="callout fixed">
+      <span class="label">Fixed — the anchor and the colour</span>
       <p>
-        The composite is darker and flatter than any single clear scene. Two causes, both structural. The
-        stretch and the colour balance measure their statistics over the <i>whole</i> raw scene, cloud
-        included — and cloud, being brighter than any ground, owns the top of the range and pushes the
-        landscape into the dark half. And because every date is fitted to the mosaic, the first date's
-        radiometry propagates through the month: here that was 1 June, 6.4% usable, a poor photometric anchor.
-        Passing the cloud-free mask into the display stretch, and anchoring on the clearest date rather than
-        the first, are both one-line changes.
+        This section used to end with a fourth failure: a composite darker and flatter than any single clear
+        scene, and a city that came out violet. I called the fix "one-line changes", which was wrong twice
+        over. Masking the display statistics and anchoring on the clearest date were indeed one line each —
+        but the first, applied alone, made the image <i>darker</i>, because it exposed the drift the bad anchor
+        was causing. And neither addressed the colour at all, which was a per-channel normalisation quietly
+        destroying the band ratios that colour is made of. <a href="#mosaic">Iteration 4</a> is what it
+        actually took.
       </p>
     </div>
   </div>
 </section>
 
 <!-- ───────────────────────────── 07 ───────────────────────────── -->
-<section id="next" class="entry">
+<!-- ───────────────────────────── 07 ───────────────────────────── -->
+<section id="year" class="entry">
   <div class="rail"><span class="num">07</span></div>
+  <div class="body">
+    <h2>A year — twelve mosaics of the same ground</h2>
+    <p>
+      One mosaic per month for all of 2025, same tile, same pipeline, one shared grading. Downloading a
+      year of Sentinel-2 the obvious way is ~80&nbsp;GB and nine hours of inference, for a result that
+      saturates after a handful of dates. So each month's dates are ranked <i>before</i> anything is pulled:
+      JPEG2000 keeps reduced-resolution copies inside the file, GDAL fetches those over HTTP range requests,
+      and a 120&nbsp;MB band is judged in eight seconds. Only the four cleanest per month are downloaded —
+      <b>21&nbsp;GB and about three hours</b> for the year.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/year_2025_paris.jpg" alt="Twelve monthly cloud-free mosaics of central Paris for 2025, arranged as a grid" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 19</span> Central Paris, month by month through 2025. Same grading throughout, so the
+        differences are seasonal: the parks greening from March, the fields harvested by August, the light
+        flattening into autumn. January and November are weather, not ground.</figcaption>
+    </figure>
+
+    <h3>What the year actually recovered</h3>
+    <p>
+      Coverage here is <i>real</i> coverage — ground genuinely observed — not the alpha channel, which reads
+      ~96% for every month because unusable pixels are filled from their least contaminated observation
+      rather than left empty. That fallback is worth about 1% on a good month. On a bad one it becomes the
+      picture.
+    </p>
+
+    <div class="table-wrap">
+      <table class="bands">
+        <thead><tr><th>Month</th><th>Real ground</th><th>Fallback</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>January</td><td>3.2%</td><td>92.7%</td><td><span class="tag">unusable</span></td></tr>
+          <tr><td>February</td><td>85.1%</td><td>10.8%</td><td>usable</td></tr>
+          <tr><td>March</td><td>93.6%</td><td>2.3%</td><td>good</td></tr>
+          <tr><td>April</td><td>95.0%</td><td>0.9%</td><td>good</td></tr>
+          <tr><td>May</td><td>94.9%</td><td>1.0%</td><td>good</td></tr>
+          <tr><td>June</td><td>95.3%</td><td>0.6%</td><td>good</td></tr>
+          <tr><td>July</td><td>95.0%</td><td>0.9%</td><td>good</td></tr>
+          <tr><td>August</td><td>94.3%</td><td>1.6%</td><td>good</td></tr>
+          <tr><td>September</td><td>74.1%</td><td>21.8%</td><td>degraded</td></tr>
+          <tr><td>October</td><td>77.4%</td><td>18.5%</td><td>degraded</td></tr>
+          <tr><td>November</td><td>60.7%</td><td>35.2%</td><td><span class="tag">unusable</span></td></tr>
+          <tr><td>December</td><td>89.0%</td><td>6.9%</td><td>usable</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout finding">
+      <span class="label">Finding</span>
+      <p>
+        <b>Ten months out of twelve.</b> Six consecutive months from March to August land above 93%, and the
+        failures are the calendar rather than the method — January offered 3.2% of usable ground across
+        every date in the month. No amount of engineering recovers a tile that was never seen. What a
+        pipeline <i>can</i> be blamed for is not saying so: January renders as a full, plausible image that
+        is 93% cloud, and only the number above gives it away.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── 08 ───────────────────────────── -->
+<section id="next" class="entry">
+  <div class="rail"><span class="num">08</span></div>
   <div class="body">
     <h2>Next</h2>
     <ul class="next-list">
-      <li><b>Fine-tune on Sentinel-2.</b> The network has never seen a European city at 10&nbsp;m. The urban
-        false positives are a domain gap, not a capacity limit.</li>
-      <li><b>Overlapping inference.</b> Half-tile stride with feathered blending removes the grid artefact
-        on overcast dates.</li>
-      <li><b>NDWI before the shadow test.</b> Stops the pipeline from deleting every river it sees.</li>
+      <li><b>Say when the answer is weather.</b> A month with 3% real ground still renders as a full image.
+        The fallback that makes that happen is right at 1% of a scene and wrong at 93%; it should be bounded,
+        and the real coverage should travel with the image rather than live in a log.</li>
+      <li><b>Re-run the year with the water index.</b> It is in the pipeline now, but the twelve mosaics
+        above predate it, so the Seine is still carved out of every one of them.</li>
+      <li><b>Persistent-detection memory.</b> A pixel the network calls cloud on <i>every</i> date is a false
+        positive, not weather. Detecting that across dates would kill the 1&nbsp;km discs at the source
+        instead of papering over them with a fallback.</li>
       <li><b>Adaptive dilation.</b> Scale the buffer with the size of the detected region, so a 200&nbsp;px
         blob does not erase 3&nbsp;km².</li>
-      <li><b>One mosaic per month, twelve months.</b> The store is already keyed by month and resumes from a
-        checkpoint. The output is a cloud-free time series of the same ground — which is the point of all of this.</li>
+      <li><b>Fine-tune on Sentinel-2.</b> The network has never seen a European city at 10&nbsp;m. The urban
+        false positives are a domain gap, not a capacity limit — and every workaround above is compensating
+        for it.</li>
+      <li><b>Overlapping inference.</b> Half-tile stride with feathered blending removes the grid artefact
+        on overcast dates.</li>
     </ul>
   </div>
 </section>
@@ -627,8 +908,15 @@
     <h2>Colophon</h2>
     <p>
       Python, PyTorch, rasterio, NumPy, scikit-image, SciPy. Hexagonal layout — domain, application,
-      infrastructure — so the compositor never knows it is reading JPEG2000. Inference runs on CPU; a full
-      month of the Paris tile takes a few hours and checkpoints as it goes.
+      infrastructure — so the compositor never knows it is reading JPEG2000. Inference runs on CPU: about
+      three minutes per date, so under an hour for a full month of the Paris tile, and it checkpoints as it
+      goes — the mosaic is stored as RGBA, alpha marking which pixels are already settled, so a later run
+      only pays for the holes.
+    </p>
+    <p>
+      That checkpoint is also what made the grading tractable. It holds the composited result, so the white
+      point and the contrast can be changed and judged across all twelve months in a few minutes, instead of
+      the three hours it takes to rebuild them. Every grading decision on this page was made that way.
     </p>
     <p class="aside">
       Figures on this page are downscaled. Full-resolution outputs are 10 980&nbsp;px square and 200–280&nbsp;MB each.
