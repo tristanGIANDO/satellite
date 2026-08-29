@@ -54,15 +54,16 @@
   });
 
   /* ── before / after slider ──────────────────────────────────────── */
-  const cmp = document.getElementById("compare");
-  if (cmp) {
+  document.querySelectorAll(".compare").forEach((cmp) => {
+    const labelBefore = cmp.dataset.labelBefore || "Before";
+    const labelAfter = cmp.dataset.labelAfter || "After";
     const frame = document.createElement("div");
     frame.className = "compare-frame";
     frame.innerHTML = `
-      <div class="layer layer-after"><img src="${cmp.dataset.after}" alt="Mosaic built by selecting pixels" loading="lazy"></div>
-      <div class="layer layer-clip"><img src="${cmp.dataset.before}" alt="Mosaic built by selecting whole tiles" loading="lazy"></div>
-      <span class="compare-tag left">Tile-level</span>
-      <span class="compare-tag right">Per-pixel</span>
+      <div class="layer layer-after"><img src="${cmp.dataset.after}" alt="${labelAfter}" loading="lazy"></div>
+      <div class="layer layer-clip"><img src="${cmp.dataset.before}" alt="${labelBefore}" loading="lazy"></div>
+      <span class="compare-tag left">${labelBefore}</span>
+      <span class="compare-tag right">${labelAfter}</span>
       <div class="compare-handle"></div>`;
     cmp.prepend(frame);
 
@@ -72,6 +73,7 @@
       const p = Math.min(100, Math.max(0, pct));
       clipped.style.setProperty("--pos", p + "%");
       handle.style.left = p + "%";
+      frame.setAttribute("aria-valuenow", Math.round(p));
     };
     set(50);
 
@@ -88,26 +90,45 @@
     frame.addEventListener("pointermove", (e) => dragging && fromEvent(e));
     frame.addEventListener("pointerup", () => (dragging = false));
     frame.addEventListener("pointercancel", () => (dragging = false));
-  }
+
+    // Keyboard equivalent, so the comparison is not drag-only.
+    frame.tabIndex = 0;
+    frame.setAttribute("role", "slider");
+    frame.setAttribute("aria-label", `${labelBefore} compared with ${labelAfter}`);
+    frame.setAttribute("aria-valuemin", "0");
+    frame.setAttribute("aria-valuemax", "100");
+    frame.addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? 10 : 4;
+      const current = parseFloat(frame.getAttribute("aria-valuenow") || "50");
+      if (e.key === "ArrowLeft") set(current - step);
+      else if (e.key === "ArrowRight") set(current + step);
+      else if (e.key === "Home") set(0);
+      else if (e.key === "End") set(100);
+      else return;
+      e.preventDefault();
+    });
+  });
 
   /* ── coverage chart ─────────────────────────────────────────────── */
   // June 2025, tile 31UDQ. usable = share of the scene that date could contribute;
   // filled = cumulative share of the mosaic reconstructed. Source: inference_pipeline.log
+  // Dates are in processing order — ranked cleanest first, not chronological.
   const DATA = [
-    { d: "06-01", usable: 6.4, filled: 6.4 },
-    { d: "06-03", usable: 12.2, filled: 18.5 },
-    { d: "06-05", usable: 4.2, filled: 21.4 },
-    { d: "06-06", usable: 31.2, filled: 48.2 },
-    { d: "06-08", usable: 18.6, filled: 56.1 },
-    { d: "06-11", usable: 53.7, filled: 75.2 },
-    { d: "06-13", usable: 87.8, filled: 94.2 },
-    { d: "06-15", usable: 13.1, filled: 94.2 },
-    { d: "06-16", usable: 44.9, filled: 94.8 },
-    { d: "06-18", usable: 84.3, filled: 95.1 },
-    { d: "06-21", usable: 52.8, filled: 95.2 },
-    { d: "06-23", usable: 8.4, filled: 95.2 },
-    { d: "06-25", usable: 18.3, filled: 95.2 },
-    { d: "06-26", usable: 10.4, filled: 95.3 }
+    { d: "06-16", usable: 44.9, filled: 44.9 },
+    { d: "06-13", usable: 87.8, filled: 92.9 },
+    { d: "06-21", usable: 52.8, filled: 94.5 },
+    { d: "06-18", usable: 84.3, filled: 94.9 },
+    { d: "06-11", usable: 53.7, filled: 95.1 },
+    { d: "06-06", usable: 31.2, filled: 95.1 },
+    { d: "06-26", usable: 10.4, filled: 95.2 },
+    { d: "06-28", usable: 3.1, filled: 95.2 },
+    { d: "06-08", usable: 18.6, filled: 95.2 },
+    { d: "06-03", usable: 12.2, filled: 95.3 },
+    { d: "06-15", usable: 13.1, filled: 95.3 },
+    { d: "06-01", usable: 6.4, filled: 95.3 },
+    { d: "06-23", usable: 8.4, filled: 95.3 },
+    { d: "06-25", usable: 18.3, filled: 95.3 },
+    { d: "06-05", usable: 4.2, filled: 95.3 }
   ];
 
   const host = document.getElementById("coverage-chart");
