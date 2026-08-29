@@ -25,6 +25,7 @@ class SentinelConfig:
 class SentinelBandCodePreset(StrEnum):
     PARIS = "31UDQ"
     MONTPELLIER = "31TEJ"
+    MONT_BLANC = "32TLR"  # Haute-Savoie: Chamonix, massif du Mont-Blanc, Beaufortain
     TROMSO = "33WXT"
     NEWYORK = "18TWL"
     LYON = "31TFL"

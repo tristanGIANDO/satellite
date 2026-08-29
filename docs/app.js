@@ -45,7 +45,7 @@
     document.body.style.overflow = "";
   };
 
-  document.querySelectorAll(".fig img").forEach((img) => {
+  document.querySelectorAll(".fig img:not(.player img)").forEach((img) => {
     img.addEventListener("click", () => openLightbox(img));
   });
   lb.addEventListener("click", closeLightbox);
@@ -107,6 +107,97 @@
       else return;
       e.preventDefault();
     });
+  });
+
+
+  /* ── frame player ───────────────────────────────────────────────── */
+  document.querySelectorAll(".player").forEach((host) => {
+    const prefix = host.dataset.prefix;
+    const count = parseInt(host.dataset.count, 10);
+    const labels = (host.dataset.labels || "").split(",");
+    const coverage = (host.dataset.coverage || "").split(",");
+    const alt = host.dataset.alt || "";
+    if (!prefix || !count) return;
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const frames = Array.from({ length: count }, (_, i) => {
+      const img = document.createElement("img");
+      img.src = `${prefix}${pad(i + 1)}.jpg`;
+      img.alt = `${alt} — ${labels[i] || i + 1}`;
+      img.loading = i < 2 ? "eager" : "lazy";
+      img.className = "player-frame";
+      return img;
+    });
+
+    const stage = document.createElement("div");
+    stage.className = "player-stage";
+    frames.forEach((f) => stage.append(f));
+
+    const controls = document.createElement("div");
+    controls.className = "player-controls";
+    controls.innerHTML = `
+      <button class="player-btn" type="button" aria-label="Play">&#9654;</button>
+      <input class="player-range" type="range" min="0" max="${count - 1}" value="0"
+             aria-label="Month" />
+      <span class="player-readout"><b class="player-label"></b><span class="player-cov"></span></span>`;
+
+    host.append(stage, controls);
+
+    const button = controls.querySelector(".player-btn");
+    const range = controls.querySelector(".player-range");
+    const label = controls.querySelector(".player-label");
+    const cov = controls.querySelector(".player-cov");
+
+    let index = 0;
+    let timer = null;
+
+    const show = (i) => {
+      index = (i + count) % count;
+      frames.forEach((f, n) => f.classList.toggle("on", n === index));
+      range.value = index;
+      label.textContent = labels[index] || "";
+      cov.textContent = coverage[index] ? `${coverage[index]}% ground` : "";
+    };
+
+    const stop = () => {
+      clearInterval(timer);
+      timer = null;
+      button.innerHTML = "&#9654;";
+      button.setAttribute("aria-label", "Play");
+    };
+    const play = () => {
+      if (timer) return;
+      timer = setInterval(() => show(index + 1), 900);
+      button.innerHTML = "&#10073;&#10073;";
+      button.setAttribute("aria-label", "Pause");
+    };
+
+    button.addEventListener("click", () => (timer ? stop() : play()));
+    range.addEventListener("input", () => {
+      stop();
+      show(parseInt(range.value, 10));
+    });
+
+    show(0);
+
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!still && "IntersectionObserver" in window) {
+      let started = false;
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            if (e.isIntersecting && !started) {
+              started = true;
+              play();
+            } else if (!e.isIntersecting) {
+              stop();
+            }
+          });
+        },
+        { threshold: 0.35 }
+      );
+      io.observe(host);
+    }
   });
 
   /* ── coverage chart ─────────────────────────────────────────────── */
