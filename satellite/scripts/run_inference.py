@@ -86,20 +86,21 @@ if __name__ == "__main__":
     model_path = Path("satellite/exploration/models/simple_unet_v2_subset4000_epoch20.pth")
     images_root_directory = Path("satellite_data/sentinel2")
 
-    tile_code = SentinelBandCodePreset.PARIS
+    tile_codes = [SentinelBandCodePreset.MONT_BLANC]
     start_date = datetime(2025, 6, 1)
     end_date = datetime(2025, 6, 30)
 
-    logger.info(f"Downloading any missing bands for {tile_code} between {start_date} and {end_date}...")
-    download_timerange_bands(
-        start_date=date(start_date.year, start_date.month, start_date.day),
-        end_date=date(end_date.year, end_date.month, end_date.day),
-        tiles=[tile_code],
-        output_directory=images_root_directory,
-    )
+    for tile_code in tile_codes:
+        logger.info(f"Downloading any missing bands for {tile_code} between {start_date} and {end_date}...")
+        download_timerange_bands(
+            start_date=date(start_date.year, start_date.month, start_date.day),
+            end_date=date(end_date.year, end_date.month, end_date.day),
+            tiles=[tile_code],
+            output_directory=images_root_directory,
+        )
 
-    # Keyed by month (not just tile) so different months stay separate mosaics -- e.g. for a
-    # "one cloud-free image per month" time series -- while still resuming within the same month.
-    mosaic_store = MosaicStore(Path(f"satellite_data/mosaics/{tile_code}_{start_date.strftime('%Y-%m')}.png"))
+        # Keyed by month (not just tile) so different months stay separate mosaics -- e.g. for a
+        # "one cloud-free image per month" time series -- while still resuming within the same month.
+        mosaic_store = MosaicStore(Path(f"satellite_data/mosaics/{tile_code}_{start_date.strftime('%Y-%m')}.png"))
 
-    main(start_date, end_date, images_root_directory, tile_code, model_path, mosaic_store)
+        main(start_date, end_date, images_root_directory, tile_code, model_path, mosaic_store)
