@@ -12,6 +12,30 @@ from satellite.src.domain.image import ImagePaths
 
 logger = logging.getLogger(__name__)
 
+# Percentiles are measured on every Nth pixel of each axis. np.percentile sorts whatever it is
+# given, so at full resolution the haze and white points cost a sort of 120 Mpx per channel to
+# recover two numbers; the 0.5th and 98th percentiles of every 4th pixel match those to three
+# decimals for 1/16 of the work and 1/16 of the temporary memory.
+STAT_STRIDE = 4
+MIN_STAT_SAMPLE = 10_000
+
+
+def _statistics_sample(image: np.ndarray, valid_mask: np.ndarray | None) -> np.ndarray:
+    """Returns the pixels the colour statistics are measured on, as (N, channels).
+
+    Decimated by `STAT_STRIDE` on both axes unless that leaves too few pixels to be representative
+    -- a nearly fully clouded date, where the full-resolution read is cheap anyway because the
+    mask keeps almost nothing.
+    """
+    strided = image[::STAT_STRIDE, ::STAT_STRIDE]
+    if valid_mask is None or not valid_mask.any():
+        return strided.reshape(-1, image.shape[-1])
+
+    strided_mask = valid_mask[::STAT_STRIDE, ::STAT_STRIDE]
+    if int(strided_mask.sum()) >= MIN_STAT_SAMPLE:
+        return strided[strided_mask]
+    return image[valid_mask]
+
 
 class JP2StackedImage(StackedImageService):
     def _atmospheric_normalize(
@@ -38,19 +62,25 @@ class JP2StackedImage(StackedImageService):
         A final gamma lifts the midtones, since vegetation sits low in reflectance and would
         otherwise be crushed towards black.
         """
-        use_mask = valid_mask is not None and valid_mask.any()
-        measured_area = valid_mask if use_mask else np.ones(rgb.shape[:2], dtype=bool)
+        sample = _statistics_sample(rgb, valid_mask)
 
-        haze_free = np.empty_like(rgb, dtype=np.float32)
-        for channel in range(rgb.shape[-1]):
-            band = rgb[..., channel]
-            haze_free[..., channel] = band - np.percentile(band[measured_area], dark_percentile)
+        haze_free = rgb.astype(np.float32, copy=True)
+        # float32, or the subtraction below promotes the whole scene to float64.
+        dark_points = np.percentile(sample, dark_percentile, axis=0).astype(np.float32)
+        haze_free -= dark_points
 
-        bright = np.percentile(haze_free[measured_area], bright_percentile)
+        bright = float(np.percentile(sample - dark_points, bright_percentile))
         if bright <= 1e-6:
-            return np.clip(haze_free, 0, 1)
+            return np.clip(haze_free, 0, 1, out=haze_free)
 
-        return np.power(np.clip(haze_free / bright, 0, 1), 1.0 / gamma)
+        # In place throughout: at 120 Mpx x 3 channels each of these steps would otherwise leave a
+        # 1.45 GB temporary behind, and the stage already peaks at 11.7 GB.
+        np.divide(haze_free, bright, out=haze_free)
+        np.clip(haze_free, 0, 1, out=haze_free)
+        if gamma == 2.0:
+            # The configured default, and np.sqrt is several times faster than a general power.
+            return np.sqrt(haze_free, out=haze_free)
+        return np.power(haze_free, 1.0 / gamma, out=haze_free)
 
     def _gray_world_balance(self, stacked_image: np.ndarray, valid_mask: np.ndarray | None = None) -> np.ndarray:
         """Applies the Gray World color balance algorithm to a stacked image.
@@ -90,12 +120,11 @@ class JP2StackedImage(StackedImageService):
         """
         stacked_image = stacked_image.astype(np.float32)
         stretched = np.empty_like(stacked_image)
-        use_mask = valid_mask is not None and valid_mask.any()
+        sample = _statistics_sample(stacked_image, valid_mask)
 
         for c in range(stacked_image.shape[-1]):
             channel = stacked_image[..., c]
-            measured = channel[valid_mask] if use_mask else channel
-            minimum, maximum = np.percentile(measured, (2, 98))
+            minimum, maximum = (float(value) for value in np.percentile(sample[:, c], (2, 98)))
             stretched[..., c] = np.clip((channel - minimum) / (maximum - minimum + 1e-6), 0, 1)
 
         return stretched
@@ -132,7 +161,7 @@ class JP2StackedImage(StackedImageService):
         if not has_data.any():
             return None
 
-        baseline = np.percentile(raw[has_data], 2)
+        baseline = float(np.percentile(raw[has_data], 2))
         return (raw - baseline) / 10000.0
 
     def load_cirrus_reflectance(self, image_paths: ImagePaths, target_shape: tuple[int, int]) -> np.ndarray | None:

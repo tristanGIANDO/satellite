@@ -8,9 +8,22 @@ from satellite.src.domain.tile import DEFAULT_TILE_SIZE, Tile, TileGrid
 
 
 class ModelService(ABC):
+    #: How many tiles `predict_batch` should be given at once. Part of the interface rather than an
+    #: implementation detail: the caller has to know how to group the scene's tiles before calling.
+    batch_size: int = 1
+
     @abstractmethod
     def predict(self, tile: Tile) -> np.ndarray:
         """Run the model prediction on the given image."""
+        pass
+
+    @abstractmethod
+    def predict_batch(self, batch: np.ndarray) -> np.ndarray:
+        """Run the model over a stack of tiles shaped (B, H, W, C), returning logits as (B, H, W).
+
+        Batching is not an optimisation detail the caller can ignore: at batch 1 this model spends
+        most of its time on per-call overhead rather than on arithmetic.
+        """
         pass
 
 
