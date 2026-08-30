@@ -34,6 +34,7 @@
     <a href="#paris">Paris</a>
     <a href="#isere">Is&egrave;re</a>
     <a href="#montpellier">Montpellier</a>
+    <a href="#france">France</a>
     <a href="#how">How</a>
   </nav>
   <a class="repo" href="https://github.com/tristanGIANDO/satellite">GitHub &#8599;</a>
@@ -53,15 +54,17 @@
       of the month. Nothing is generated, inferred or painted in &mdash; every pixel was photographed.
     </p>
     <p class="lede">
-      The three tiles below are the three places I have lived. That is not only sentiment: I know what each of
-      them is supposed to look like, which is the only way I can tell a good result from a plausible one.
-      Between them they break the pipeline in three different directions &mdash; detail, snow, colour.
+      The first three tiles below are the three places I have lived. That is not only sentiment: I know what
+      each of them is supposed to look like, which is the only way I can tell a good result from a plausible
+      one. Between them they break the pipeline in three different directions &mdash; detail, snow, colour.
+      Then the fourth section runs the same pipeline over all 93 tiles of France at once, which breaks it in
+      ways no single tile can.
     </p>
     <ul class="stats">
       <li><b>95.9%</b><span>of a tile recovered</span></li>
       <li><b>12</b><span>monthly mosaics, 2025</span></li>
       <li><b>4 / 15</b><span>dates actually downloaded</span></li>
-      <li><b>3</b><span>tiles, three stress tests</span></li>
+      <li><b>93</b><span>tiles, all of France</span></li>
       <li><b>2 args</b><span>to point it anywhere</span></li>
     </ul>
     <p class="byline">Tristan Giandoriggio &middot; drag the sliders, play the year</p>
@@ -229,8 +232,77 @@
   </div>
 </section>
 
-<section id="how" class="entry">
+<section id="france" class="entry result">
   <div class="rail"><span class="num">04</span></div>
+  <div class="body">
+    <h2>France &mdash; the whole country, in one frame</h2>
+    <p class="claim">
+      Three tiles prove the compositor works. Ninety-three ask a different question: does any of it survive
+      being scaled up? A country is not a big tile. It spans three UTM zones, so the tiles do not even share a
+      projection; it holds sea, snow, cereal plains and Mediterranean rock in one histogram, so nothing
+      calibrated on a single scene generalises; and at some point every shortcut that was invisible at
+      110&nbsp;km becomes a visible square.
+    </p>
+
+    <div class="compare"
+         data-before="assets/france_202607_raw.jpg"
+         data-after="assets/france_202607_final.jpg"
+         data-label-before="One pass &middot; untouched"
+         data-label-after="One month &middot; July 2026">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Metropolitan France and Corsica, July 2026, 1&nbsp;268&nbsp;&times;
+        1&nbsp;199&nbsp;km at 50&nbsp;m. The left is what the satellite actually sends: one pass per tile taken
+        as it comes, top-of-atmosphere reflectance on a plain linear scale, no cloud mask, no haze subtraction,
+        no white point, no matching between tiles. The right is the same 93&nbsp;tiles after the pipeline. The
+        cloud over Brittany, the Channel and the south-west on the left is not unusual weather &mdash; it is
+        July.
+      </figcaption>
+    </div>
+
+    <p>
+      Scaling up broke three things, and each one was worth more than the fix. Dates were being chosen by
+      their position in the month with no regard for whether the pass held any ground, so tiles near an orbit
+      edge came out 13% filled from three cloud-free dates &mdash; nothing wrong with the weather or the
+      model, simply no landscape in the scenes picked. Exposure and white point were being set per tile, on
+      93 different histograms, which is how a country ends up looking like 93 photographs. And a pixel was
+      counted as data if <em>any</em> band covered it, so the fringe along each swath edge poisoned the black
+      point: on one partial scene the blue black point came out at 0.003 instead of 0.166, and the whole swath
+      rendered electric blue.
+    </p>
+
+    <p>
+      What survived all three fixes was a chequerboard. Every tile is composited from its own dates, each
+      date's haze measured and subtracted from that date's own dark pixels, and what remains differs
+      <em>across</em> a tile as well as between tiles. One gain and one offset per tile &mdash; which is all
+      the colour matching fits &mdash; describes the average and leaves the rest on screen. So the correction
+      was allowed to vary: a smooth field per tile, all 93 solved together, minimising disagreement where
+      tiles share ground plus a Laplacian smoothness term. That is the prior Poisson blending imposes, applied
+      to the <em>correction</em> rather than the image, which is what makes it affordable &mdash; 109&nbsp;211
+      unknowns on a 3&nbsp;km grid rather than 600&nbsp;million pixels, solved in 17&nbsp;seconds.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/france_202607_final.jpg" alt="The finished July 2026 mosaic of France, 93 Sentinel-2 tiles composited and blended in Lambert-93" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 3</span> The finished mosaic, in Lambert-93 at 50&nbsp;m &mdash;
+        25&nbsp;368&nbsp;&times;&nbsp;23&nbsp;988&nbsp;px. Two things are still wrong and both are visible
+        here. The pale diagonal bands through the centre-west are not tile joins: they are swath edges
+        <em>inside</em> a tile, where a hazy date meets a clear one, which is the same problem one level down
+        and not yet fixed. And the sea comes out violet and banded, because offshore there is almost no signal
+        for the exposure to normalise and it amplifies noise and Sentinel-2's detector modules instead.
+      </figcaption>
+    </figure>
+
+    <p class="aside">
+      Nothing here was downloaded at full resolution. A 50&nbsp;m output keeps one Sentinel-2 pixel in
+      twenty-five, so the scenes were read from the reduced-resolution copies stored inside each JPEG&nbsp;2000
+      file, over HTTP range requests &mdash; 20&nbsp;GB instead of 125, and hours instead of a day.
+    </p>
+
+  </div>
+</section>
+
+<section id="how" class="entry">
+  <div class="rail"><span class="num">05</span></div>
   <div class="body">
     <h2>How it works, in four lines</h2>
     <ol class="steps">
