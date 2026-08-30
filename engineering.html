@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Satellite &mdash; Part III &middot; Engineering</title>
+<meta name="description" content="The engineering behind the cloud-removal pipeline: remote scene selection over HTTP range requests, idempotent ingest, resumable mosaic checkpoints, grading decoupled from compositing, and an onion-layered codebase." />
+<meta name="author" content="Tristan Giandoriggio" />
+<meta property="og:title" content="Satellite &mdash; Part III &middot; Engineering" />
+<meta property="og:description" content="Pipeline and architecture: what makes the cloud-removal run cheap to repeat." />
+<meta property="og:image" content="assets/cover_seine_valley.jpg" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html">
+    <img src="assets/logo.png" alt="" width="24" height="24" />
+    <span>satellite</span>
+  </a>
+  <div class="parts" role="navigation" aria-label="Parts">
+    <a class="part" href="index.html"><b>I</b> Results</a>
+    <a class="part" href="research.html"><b>II</b> Research</a>
+    <a class="part current" href="engineering.html" aria-current="page"><b>III</b> Engineering</a>
+  </div>
+  <nav class="tabs" aria-label="Sections">
+    <a href="#pipeline">Pipeline</a>
+    <a href="#profiling">Profiling</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#colophon">Colophon</a>
+  </nav>
+  <a class="repo" href="https://github.com/tristanGIANDO/satellite">GitHub &#8599;</a>
+</header>
+
+<main id="main">
+
+<section class="hero hero-slim" id="top">
+  <div class="hero-inner">
+    <p class="kicker">Part III &middot; Engineering</p>
+    <h1>Anyone can run it once.</h1>
+    <p class="lede">
+      Part II ends with a checkpoint and an algorithm that work. Neither is worth much on its own: a scene is
+      450&nbsp;MB, a month of them is fifteen scenes, and a year of one tile is roughly 80&nbsp;GB for a
+      result that saturates after four clear dates. This part is everything built around the model so that
+      running it again &mdash; on another tile, another month, another grading &mdash; costs minutes instead
+      of days.
+    </p>
+    <ul class="stats">
+      <li><b>4 / 15</b><span>dates actually downloaded</span></li>
+      <li><b>4 min 47 &rarr; 2 min 02</b><span>per date, measured</span></li>
+      <li><b>22.5 &rarr; 10.1 GB</b><span>peak RSS, 964 MB scene</span></li>
+      <li><b>772% &rarr; 1456%</b><span>CPU during inference</span></li>
+    </ul>
+    <p class="byline">Three diagrams, one profiler, six bottlenecks fixed, and an honest list of what is
+      still missing.</p>
+  </div>
+</section>
+
+<!-- PIPELINE / MLOPS -->
+<section id="pipeline" class="entry">
+  <div class="rail"><span class="num">01</span></div>
+  <div class="body">
+    <h2>Pipeline &mdash; what actually runs</h2>
+    <p class="claim">
+      A model that only exists inside a notebook is a demo. Everything that makes it usable is around it.
+    </p>
+    <p>
+      There is no cluster here and no scheduler: it is a single CPU process you point at a tile and a date
+      range. But a run reads hundreds of gigabytes and takes about twenty minutes per month, which forces
+      exactly the properties an ML pipeline needs anyway. <b>Every stage is idempotent, every stage is
+      resumable, every stage is skippable when its output already exists</b>, and each run leaves the metrics
+      it should be judged on behind it.
+    </p>
+
+    <figure class="fig diagram-fig">
+      <div class="diagram">
+        <svg viewBox="0 0 1000 640" role="img" aria-labelledby="mlops-title mlops-desc">
+          <title id="mlops-title">The pipeline, end to end</title>
+          <desc id="mlops-desc">Six stages. Sources: the Copernicus S3 bucket and the 38-Cloud dataset.
+            Training: a CSV path index, a notebook run, a .pth checkpoint. Selection: available dates are listed and
+            scored remotely over HTTP range requests, and only the cleanest few are downloaded. Inference: dates are
+            ordered clearest first, the scene is cut into 256-pixel tiles, predicted, filtered through the veto stack
+            and composited per pixel. State and output: an RGBA mosaic checkpoint that can be re-graded into a PNG in
+            seconds, per-date masks and a metrics log. Gates: pre-commit hooks and a GitHub Actions docs deploy.</desc>
+
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#3987e5"></path>
+            </marker>
+            <marker id="ar-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#d95926"></path>
+            </marker>
+          </defs>
+
+          <text class="d-lane" x="16" y="74">SOURCES</text>
+          <text class="d-lane" x="16" y="174">TRAINING</text>
+          <text class="d-lane" x="16" y="274">SELECTION</text>
+          <text class="d-lane" x="16" y="374">INFERENCE</text>
+          <text class="d-lane" x="16" y="474">STATE &amp; OUTPUT</text>
+          <text class="d-lane" x="16" y="574">GATES</text>
+
+          <line class="d-sep" x1="130" y1="112" x2="970" y2="112"></line>
+          <line class="d-sep" x1="130" y1="212" x2="970" y2="212"></line>
+          <line class="d-sep" x1="130" y1="312" x2="970" y2="312"></line>
+          <line class="d-sep" x1="130" y1="412" x2="970" y2="412"></line>
+          <line class="d-sep" x1="130" y1="512" x2="970" y2="512"></line>
+
+          <g class="d-box d-ext">
+            <rect x="140" y="40" width="270" height="58" rx="6"></rect>
+            <text class="d-t" x="156" y="64">Copernicus S3 &mdash; sentinel-s2-l1c</text>
+            <text class="d-s" x="156" y="82">JP2 per band, keyed by tile and date</text>
+          </g>
+          <g class="d-box d-ext">
+            <rect x="450" y="40" width="270" height="58" rx="6"></rect>
+            <text class="d-t" x="466" y="64">38-Cloud &mdash; Kaggle</text>
+            <text class="d-s" x="466" y="82">8 400 labelled Landsat-8 patches</text>
+          </g>
+
+          <g class="d-box">
+            <rect x="450" y="140" width="200" height="58" rx="6"></rect>
+            <text class="d-t" x="466" y="164">dataset.csv</text>
+            <text class="d-s" x="466" y="182">path index &rarr; subsets</text>
+          </g>
+          <g class="d-box">
+            <rect x="670" y="140" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="684" y="164">train</text>
+            <text class="d-s" x="684" y="182">notebook, CPU</text>
+          </g>
+          <g class="d-box d-art">
+            <rect x="840" y="140" width="130" height="58" rx="6"></rect>
+            <text class="d-t" x="854" y="164">.pth</text>
+            <text class="d-s" x="854" y="182">checkpoint</text>
+          </g>
+
+          <g class="d-box">
+            <rect x="140" y="240" width="240" height="58" rx="6"></rect>
+            <text class="d-t" x="156" y="264">list_available_dates</text>
+            <text class="d-s" x="156" y="282">HEAD per day, no download</text>
+          </g>
+          <g class="d-box d-hot">
+            <rect x="400" y="240" width="290" height="58" rx="6"></rect>
+            <text class="d-t" x="416" y="264">score remotely &mdash; /vsicurl overviews</text>
+            <text class="d-s" x="416" y="282">blue + cirrus, HTTP range requests</text>
+          </g>
+          <g class="d-box">
+            <rect x="710" y="240" width="260" height="58" rx="6"></rect>
+            <text class="d-t" x="726" y="264">download the 4 cleanest</text>
+            <text class="d-s" x="726" y="282">skip anything already on disk</text>
+          </g>
+
+          <g class="d-box">
+            <rect x="140" y="340" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="152" y="364">order dates</text>
+            <text class="d-s" x="152" y="382">clearest first</text>
+          </g>
+          <g class="d-box">
+            <rect x="306" y="340" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="318" y="364">tile 256 px</text>
+            <text class="d-s" x="318" y="382">fixed grid</text>
+          </g>
+          <g class="d-box">
+            <rect x="472" y="340" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="484" y="364">predict</text>
+            <text class="d-s" x="484" y="382">stitch probability</text>
+          </g>
+          <g class="d-box">
+            <rect x="638" y="340" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="650" y="364">veto stack</text>
+            <text class="d-s" x="650" y="382">cirrus, size, shadow</text>
+          </g>
+          <g class="d-box d-hot">
+            <rect x="804" y="340" width="150" height="58" rx="6"></rect>
+            <text class="d-t" x="816" y="364">composite</text>
+            <text class="d-s" x="816" y="382">lowest score wins</text>
+          </g>
+
+          <g class="d-box d-art">
+            <rect x="140" y="440" width="200" height="58" rx="6"></rect>
+            <text class="d-t" x="152" y="464">MosaicStore</text>
+            <text class="d-s" x="152" y="482">RGBA, alpha = filled</text>
+          </g>
+          <g class="d-box">
+            <rect x="360" y="440" width="200" height="58" rx="6"></rect>
+            <text class="d-t" x="372" y="464">grade_mosaic</text>
+            <text class="d-s" x="372" y="482">shared white point</text>
+          </g>
+          <g class="d-box d-art">
+            <rect x="580" y="440" width="185" height="58" rx="6"></rect>
+            <text class="d-t" x="592" y="464">mosaic PNG</text>
+            <text class="d-s" x="592" y="482">one per month</text>
+          </g>
+          <g class="d-box d-art">
+            <rect x="785" y="440" width="185" height="58" rx="6"></rect>
+            <text class="d-t" x="797" y="464">masks + logs</text>
+            <text class="d-s" x="797" y="482">per-date metrics</text>
+          </g>
+
+          <g class="d-box d-gate">
+            <rect x="140" y="540" width="396" height="58" rx="6"></rect>
+            <text class="d-t" x="152" y="564">pre-commit</text>
+            <text class="d-s" x="152" y="582">ruff &middot; commitizen &middot; large-file guard &middot; prettier &middot; hadolint</text>
+          </g>
+          <g class="d-box d-gate">
+            <rect x="574" y="540" width="396" height="58" rx="6"></rect>
+            <text class="d-t" x="586" y="564">GitHub Actions</text>
+            <text class="d-s" x="586" y="582">docs/ &rarr; gh-pages on push to main</text>
+          </g>
+
+          <path class="d-arrow" d="M275,98 L275,236" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M585,98 L585,136" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M650,169 L666,169" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M820,169 L836,169" marker-end="url(#ar)"></path>
+          <path class="d-arrow d-dash" d="M905,198 L986,198 L986,316 L547,316 L547,336" marker-end="url(#ar)"></path>
+          <text class="d-edge" x="836" y="222">pinned by path</text>
+
+          <path class="d-arrow" d="M380,269 L396,269" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M690,269 L706,269" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M840,298 L840,328 L215,328 L215,336" marker-end="url(#ar)"></path>
+
+          <path class="d-arrow" d="M290,369 L302,369" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M456,369 L468,369" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M622,369 L634,369" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M788,369 L800,369" marker-end="url(#ar)"></path>
+
+          <path class="d-arrow" d="M879,398 L879,420 L240,420 L240,436" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M340,469 L356,469" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M560,469 L576,469" marker-end="url(#ar)"></path>
+          <path class="d-arrow" d="M765,469 L781,469" marker-end="url(#ar)"></path>
+
+          <path class="d-arrow d-dim d-dash" d="M124,455 L100,455 L100,355 L136,355" marker-end="url(#ar-dim)"></path>
+          <text class="d-edge d-edge-hot" x="34" y="412">resume</text>
+          <path class="d-arrow d-dim d-dash" d="M240,502 L240,520 L450,520 L450,502" marker-end="url(#ar-dim)"></path>
+          <text class="d-edge d-edge-hot" x="262" y="534">re-grade without re-running inference</text>
+        </svg>
+      </div>
+      <figcaption><span class="fignum">Fig. 1</span> The pipeline end to end. Solid arrows are data; the two
+        orange ones are what makes a second run cheap.</figcaption>
+    </figure>
+
+    <h3>Four properties, and what each one bought</h3>
+    <ol class="steps">
+      <li><b>Decide before you download.</b> A single date is ~450&nbsp;MB and a month holds fifteen of them;
+        a year of one tile would be roughly 80&nbsp;GB for a result that saturates after four clear dates.
+        So every candidate date is scored <i>while it is still on the server</i>: JPEG2000 stores
+        reduced-resolution copies inside the file, GDAL fetches only those bytes over HTTP range requests,
+        and a scene is ranked from a 915-pixel sample of its blue and cirrus bands. Only the cleanest few are
+        ever pulled. This is the single decision that turned "a year of imagery" from impractical into an
+        overnight batch.</li>
+      <li><b>Idempotent ingest.</b> Downloads skip anything already on disk, missing acquisitions 404 and are
+        logged, and the layout is addressed by what the file is:
+        <code>sentinel2/&lt;date&gt;/&lt;tile&gt;/B04.jp2</code>. Re-running a month costs a directory listing.
+        The batch loop skips whole months whose export already exists, so an interrupted year resumes at the
+        month it died on.</li>
+      <li><b>Resumable state, and a checkpoint that outlives its run.</b> The mosaic persists as RGBA where
+        alpha marks the pixels already holding real ground, keyed by tile <i>and month</i>. A run that dies at
+        date 9 of 14 restarts with most of the work intact. Better: because the checkpoint holds the
+        composited result, the <b>grading is separable</b> &mdash; white point and contrast can be changed and
+        reviewed across a whole year in seconds per month, instead of the ~20 minutes a month costs to
+        rebuild. Presentation stopped being coupled to computation, which is what made the <a href="index.html#paris">twelve-month series</a> tunable at all.</li>
+      <li><b>Metrics as a first-class output.</b> Every date logs what it contributed: usable fraction, newly
+        filled, improved, cumulative coverage, and the overlap in pixels used for the radiometric fit.
+        <a href="research.html#mosaic">Fig. 16 in Part II</a> is plotted directly from that log, and the per-date masks in
+        <code>output/masks/</code> are its visual counterpart. When a run degrades, both the number and the
+        picture that explains it are already on disk.</li>
+    </ol>
+
+    <h3>Quality gates</h3>
+    <p>
+      Everything checkable before a commit is checked: <code>ruff</code> with an explicit rule set
+      (pycodestyle, pyflakes, bugbear, isort, pyupgrade, annotations, google-style pydocstyle, plus a debugger
+      and print ban), a large-file guard so no 250&nbsp;MB export is ever committed, <code>commitizen</code>
+      for conventional commits, prettier on Markdown. CI publishes this documentation on every push to
+      <code>main</code>. Failures inside the year batch are caught per month and logged with a traceback, so
+      one bad month never takes the other eleven with it.
+    </p>
+
+    <div class="callout caution">
+      <span class="label">Honest gaps</span>
+      <p>
+        Training still lives in a notebook, so a run is reproducible only by hand; the model registry is a
+        filename convention (<code>simple_unet_v2_subset4000_epoch20.pth</code>) and the checkpoint is pinned
+        as a literal path in the entrypoint. No experiment tracker, no data versioning, no test suite, and
+        <code>inference_pipeline.log</code> is opened with <code>mode="w"</code> &mdash; each run erases the
+        previous run's metrics, which is exactly the file I keep wanting to compare against. The next step is
+        not a better model: it is a training <i>script</i> with hyper-parameters as arguments, metrics written
+        next to the checkpoint, and a one-tile smoke test in CI.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- PROFILING -->
+<section id="profiling" class="entry">
+  <div class="rail"><span class="num">02</span></div>
+  <div class="body">
+    <h2>Profiling &mdash; where the time and the memory actually went</h2>
+    <p class="claim">
+      One date took 4 minutes 47 and peaked at 11.7&nbsp;GB of RAM. Three quarters of that time was the model,
+      and almost all of the rest ran on a single core out of sixteen. Fixing the six things below took the
+      same two-date run from <b>451&nbsp;s and 22.5&nbsp;GB to 262&nbsp;s and 10.1&nbsp;GB</b> &mdash; 1.7&times;
+      the speed on 45% of the memory, with the mosaic unchanged.
+    </p>
+    <p>
+      Measured, not estimated, before and after: every stage of a real scene &mdash; tile <code>31UDQ</code>,
+      13 June 2025, 10&nbsp;980&nbsp;&times;&nbsp;10&nbsp;980&nbsp;px &mdash; instrumented with wall time, peak
+      resident memory and process CPU sampled every 100&nbsp;ms.
+    </p>
+
+    <div class="table-wrap">
+      <table class="bands env">
+        <thead><tr><th>Machine</th><th>Runtime</th><th>Scene</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>AMD Zen 3, 8 physical / 16 logical cores, 33.6&nbsp;GB RAM</td>
+            <td>torch 2.7.0<b>+cpu</b> &middot; CUDA unavailable</td>
+            <td>120.6&nbsp;Mpx &times; 4 bands &middot; 964&nbsp;MB raw</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="fig diagram-fig">
+      <div class="diagram">
+        <svg viewBox="0 0 1000 450" role="img" aria-labelledby="pf-title pf-desc">
+          <title id="pf-title">Wall time per pipeline stage, before and after the fixes</title>
+          <desc id="pf-desc">_predict_full_scene falls from 205.3 to 92.3 seconds, preprocess from 25.8 to 4.1,
+            cloud_pixel_mask from 21.3 to 6.2 and _align_to_mosaic from 19.1 to 2.2. The whole-scene cast in
+            to_model_input is removed entirely. Reading and decoding the four JPEG2000 bands is unchanged at
+            about 10.5 seconds and is now the second largest stage. Total falls from 286.5 to 121.6 seconds.</desc>
+          <line class="d-sep" x1="306" y1="30" x2="956" y2="30"></line>
+          <text class="pf-axis" x="306" y="22">seconds of wall clock, one date, one tile &mdash; faint bar before, solid bar after</text>
+          <text class="pf-name" x="292" y="54" text-anchor="end">_predict_full_scene</text>
+          <text class="pf-sub" x="292" y="67" text-anchor="end">1 764 tiles, batch of 16</text>
+          <rect class="pf-was" x="306" y="44" width="400.0" height="7" rx="2"></rect>
+          <rect class="pf-bar pf-hot" x="306" y="54" width="179.8" height="7" rx="2"></rect>
+          <text class="pf-val" x="716.0" y="59">205.2s &#8594; 92.3s<tspan class="pf-gain"> &nbsp;2.2x faster</tspan></text>
+          <text class="pf-name" x="292" y="94" text-anchor="end">preprocess</text>
+          <text class="pf-sub" x="292" y="107" text-anchor="end">percentile stretch + haze</text>
+          <rect class="pf-was" x="306" y="84" width="50.2" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="94" width="8.0" height="7" rx="2"></rect>
+          <text class="pf-val" x="366.2" y="99">25.8s &#8594; 4.1s<tspan class="pf-gain"> &nbsp;6.3x faster</tspan></text>
+          <text class="pf-name" x="292" y="134" text-anchor="end">cloud_pixel_mask</text>
+          <text class="pf-sub" x="292" y="147" text-anchor="end">morphology + distance transform</text>
+          <rect class="pf-was" x="306" y="124" width="41.5" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="134" width="12.1" height="7" rx="2"></rect>
+          <text class="pf-val" x="357.5" y="139">21.3s &#8594; 6.2s<tspan class="pf-gain"> &nbsp;3.4x faster</tspan></text>
+          <text class="pf-name" x="292" y="174" text-anchor="end">_align_to_mosaic</text>
+          <text class="pf-sub" x="292" y="187" text-anchor="end">per-channel gain and offset</text>
+          <rect class="pf-was" x="306" y="164" width="37.1" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="174" width="4.2" height="7" rx="2"></rect>
+          <text class="pf-val" x="353.1" y="179">19.1s &#8594; 2.2s<tspan class="pf-gain"> &nbsp;8.8x faster</tspan></text>
+          <text class="pf-name" x="292" y="214" text-anchor="end">load_and_stack</text>
+          <text class="pf-sub" x="292" y="227" text-anchor="end">4 x JPEG2000 decode</text>
+          <rect class="pf-was" x="306" y="204" width="20.9" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="214" width="20.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="336.9" y="219">10.7s &#8594; 10.5s<tspan class="pf-gain"> &nbsp;unchanged</tspan></text>
+          <text class="pf-name" x="292" y="254" text-anchor="end">to_model_input</text>
+          <text class="pf-sub" x="292" y="267" text-anchor="end">whole-scene cast, now deleted</text>
+          <rect class="pf-was" x="306" y="244" width="3.6" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="254" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="259">1.9s &#8594; 0.0s<tspan class="pf-gain"> &nbsp;removed</tspan></text>
+          <text class="pf-name" x="292" y="294" text-anchor="end">load_cirrus_reflectance</text>
+          <text class="pf-sub" x="292" y="307" text-anchor="end">B10 read + upsample</text>
+          <rect class="pf-was" x="306" y="284" width="2.4" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="294" width="1.7" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="299">1.2s &#8594; 0.87s<tspan class="pf-gain"> &nbsp;1.4x faster</tspan></text>
+          <text class="pf-name" x="292" y="334" text-anchor="end">_contamination_score</text>
+          <text class="pf-sub" x="292" y="347" text-anchor="end">blue + cirrus</text>
+          <rect class="pf-was" x="306" y="324" width="1.5" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="334" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="339">0.77s &#8594; 0.47s<tspan class="pf-gain"> &nbsp;1.6x faster</tspan></text>
+          <text class="pf-name" x="292" y="374" text-anchor="end">estimate_contamination</text>
+          <text class="pf-sub" x="292" y="387" text-anchor="end">overview sample</text>
+          <rect class="pf-was" x="306" y="364" width="0.8" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="374" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="379">0.43s &#8594; 0.43s<tspan class="pf-gain"> &nbsp;unchanged</tspan></text>
+          <text class="pf-name" x="292" y="414" text-anchor="end">load checkpoint</text>
+          <text class="pf-sub" x="292" y="427" text-anchor="end">0.5 M parameters</text>
+          <rect class="pf-was" x="306" y="404" width="0.1" height="7" rx="2"></rect>
+          <rect class="pf-bar" x="306" y="414" width="1.5" height="7" rx="2"></rect>
+          <text class="pf-val" x="328.0" y="419">0.07s &#8594; 0.11s<tspan class="pf-gain"> &nbsp;</tspan></text>
+        </svg>
+      </div>
+      <figcaption><span class="fignum">Fig. 2</span> Total 286.5&nbsp;s &rarr; 121.6&nbsp;s. The model is still
+        the largest stage, but decoding the four bands off disk is now second &mdash; the point past which
+        this pipeline is waiting on I/O rather than on itself.</figcaption>
+    </figure>
+
+    <h3>Resources per stage</h3>
+    <div class="table-wrap">
+      <table class="bands profile">
+        <thead><tr><th>Stage</th><th>Time</th><th>CPU</th><th>What changed</th></tr></thead>
+        <tbody>
+          <tr><td><code>_predict_full_scene</code></td><td>205.3 &rarr; 92.3&nbsp;s</td><td>625% &rarr; <b>1324%</b></td><td>batch of 16, <code>inference_mode</code>, 16 threads</td></tr>
+          <tr><td><code>preprocess</code></td><td>25.8 &rarr; 4.1&nbsp;s</td><td><span class="tag">1 core</span> 100%</td><td>percentiles on a 1/16 subsample, in place</td></tr>
+          <tr><td><code>cloud_pixel_mask</code></td><td>21.3 &rarr; 6.2&nbsp;s</td><td><span class="tag">1 core</span> 98%</td><td>distance transform on a 4&times; coarser grid</td></tr>
+          <tr><td><code>_align_to_mosaic</code></td><td>19.1 &rarr; 2.2&nbsp;s</td><td><span class="tag">1 core</span> 101%</td><td>gain and offset fitted on a subsample</td></tr>
+          <tr><td><code>load_and_stack</code></td><td>10.7 &rarr; 10.5&nbsp;s</td><td>1071%</td><td>untouched &mdash; GDAL already decodes in parallel</td></tr>
+          <tr><td><code>to_model_input</code></td><td>1.9 &rarr; 0&nbsp;s</td><td>&mdash;</td><td>stage deleted; the cast moved into the tile loop</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout fixed">
+      <span class="label">Bottleneck 1 &mdash; inference, was 72% of the run</span>
+      <p>
+        1&nbsp;764 tiles went through the network <b>one at a time</b>, at 625% CPU on a machine that offers
+        1600%. Three changes, in ascending order of surprise. The forward pass ran <b>without</b>
+        <code>torch.no_grad()</code>, so autograd built and kept a graph for every one of those tiles that was
+        never differentiated; <code>inference_mode</code> alone is worth 1.4&times;. Batching 16 tiles per
+        forward instead of 1 brings it to 1.7&times; &mdash; 8, 32 and 64 all measured slower, so 16 is the
+        setting rather than a round number. And torch's default thread count is one per <i>physical</i> core,
+        the usual advice for bandwidth-bound convolution, which is simply wrong here: 8 threads gives
+        59&nbsp;ms per tile, 12 gives 47 and 16 gives 48. A 256&nbsp;px tile is small enough that much of each
+        pass is latency rather than saturated arithmetic, and the second thread on a core fills it. Together:
+        <b>82.7&nbsp;ms per tile down to 39.5, at 1456% CPU instead of 772%.</b>
+      </p>
+    </div>
+
+    <div class="callout fixed">
+      <span class="label">Bottleneck 2 &mdash; was 66 seconds on one core</span>
+      <p>
+        <code>preprocess</code>, <code>cloud_pixel_mask</code> and <code>_align_to_mosaic</code> were 23% of the
+        run and each pinned exactly one core. Two of them were doing far more arithmetic than their own output
+        justified: the contrast stretch called <code>np.percentile</code> on 120&nbsp;Mpx per channel &mdash;
+        sorting the entire scene to recover two numbers &mdash; and the radiometric fit reduced a
+        gigabyte-scale masked copy to four scalars. Measured on every 4th pixel of each axis, those statistics
+        agree to <b>0.1%</b> for a sixteenth of the work: 25.8&nbsp;s &rarr; 4.1&nbsp;s and 19.1&nbsp;s &rarr;
+        2.2&nbsp;s.
+      </p>
+      <p style="margin-top:.8rem">
+        The distance transform was the interesting one. SciPy's EDT is single-threaded and returns float64
+        &mdash; a 964&nbsp;MB array &mdash; and only two thresholds are ever read from it, 100&nbsp;px for
+        dilation and 300&nbsp;px for the shadow search. So it now runs on a 4&times;-downsampled grid and only
+        the <i>thresholded booleans</i> are expanded back, which means the float64 distance field never exists
+        at scene resolution. Blocks are OR-pooled and the threshold carries one block of slack, so the
+        approximation can only ever mask <i>more</i> than the exact transform, never less &mdash; the direction
+        that costs a few pixels a later date refills, rather than the one that leaks cloud into the mosaic. On
+        this scene: <b>zero under-masked pixels, 0.21% over-masked</b>, 21.3&nbsp;s &rarr; 6.2&nbsp;s.
+      </p>
+    </div>
+
+    <div class="callout fixed">
+      <span class="label">Bottleneck 3 &mdash; memory that only grew</span>
+      <p>
+        Peak resident memory was <b>11.7&nbsp;GB for a 964&nbsp;MB scene</b>, and it climbed monotonically
+        because nothing was released between stages. Four things were holding it up. The whole-scene float32
+        twin was pointless &mdash; the model consumes 256&nbsp;px tiles, so the cast belongs inside the tile
+        loop, which deletes a 1.93&nbsp;GB allocation outright. The per-date cloud masks were kept as float32
+        RGB purely to be written out as grayscale previews, growing the run by 1.4&nbsp;GB per date; one uint8
+        channel is 12&times; smaller and produces the same PNG. And each stage now drops its arrays before the
+        next allocates, so peak tracks the working set rather than the whole run.
+      </p>
+      <p style="margin-top:.8rem">
+        The fourth was hiding in plain sight: <code>np.percentile</code> returns <code>np.float64</code>
+        scalars, and NumPy promotes on those rather than treating them as weak. Subtracting one from the
+        float32 mosaic silently returned a <b>float64</b> array &mdash; the final image, and the largest
+        allocation in the pipeline, was quietly double width for want of a <code>float()</code>. Over two
+        dates: <b>22.5&nbsp;GB down to 10.1&nbsp;GB</b>.
+      </p>
+    </div>
+
+    <div class="callout caution">
+      <span class="label">GPU &mdash; absent by construction</span>
+      <p>
+        The installed wheel is <code>torch 2.7.0+cpu</code>: there is no CUDA runtime in this environment, so
+        the GPU is not underused, it is unreachable. That is a defensible choice for a pipeline whose unit of
+        work is a 450&nbsp;MB download, and it is why the fixes above mattered &mdash; they were worth roughly
+        the same as moving to a GPU while changing nothing about the deployment.
+      </p>
+    </div>
+
+    <h3>What is left</h3>
+    <ol class="steps">
+      <li><b>Decoding is now the floor.</b> <code>load_and_stack</code> is unchanged at 10.5&nbsp;s and has
+        gone from 4% of the run to 9%. It already runs at 1071% CPU, so what is left there is the disk and the
+        JPEG2000 codec, not the code.</li>
+      <li><b><code>remove_small_objects</code> is what remains of the cloud mask.</b> Of the 6.2&nbsp;s that
+        stage still costs, most is now connected-component labelling over 120&nbsp;Mpx, single-threaded, with
+        an integer label array to match. Coarsening that too would change what <code>min_cloud_size</code>
+        means, so it is left alone deliberately.</li>
+      <li><b>The three NumPy stages still pin one core.</b> They are 12&nbsp;s rather than 66, so the remaining
+        prize is small &mdash; but nothing here was parallelised across cores, only made to do less work.</li>
+    </ol>
+
+    <p class="aside">
+      Caveat, stated because it changes how these numbers should be read: the original measurement ran with a
+      second inference job on the machine, so the per-stage "before" wall times are pessimistic by an unknown
+      margin. The before/after totals quoted at the top &mdash; 451&nbsp;s &rarr; 262&nbsp;s and 22.5&nbsp;GB
+      &rarr; 10.1&nbsp;GB &mdash; come from running the old and the new code back to back over the same two
+      dates on an otherwise idle machine, and are the ones to trust. Both runs produce the same mosaic: the
+      same white-point gains to three decimals, and 95.90% of the scene filled against 95.89%.</p>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture" class="entry">
+  <div class="rail"><span class="num">03</span></div>
+  <div class="body">
+    <h2>Architecture &mdash; onion, and where it paid</h2>
+    <p class="claim">
+      The compositor does not know it is reading JPEG2000. That is the entire point of the layout.
+    </p>
+    <p>
+      The code is onion-shaped: <code>domain</code> at the centre, <code>application</code> around it,
+      <code>infrastructure</code> outside, and <code>scripts</code> as the only entrypoints. Dependencies point
+      <b>inward only</b>. The domain imports NumPy, SciPy and scikit-image and nothing of ours. The application
+      holds the algorithm &mdash; the compositing loop, the contamination score, the radiometric alignment, the
+      grading &mdash; and declares abstract ports for anything it cannot do itself. Infrastructure implements
+      those ports, and is the only place that has heard of rasterio, torch, S3 or PNG.
+    </p>
+
+    <figure class="fig diagram-fig">
+      <div class="diagram">
+        <svg viewBox="0 0 1000 560" role="img" aria-labelledby="onion-title onion-desc">
+          <title id="onion-title">Onion architecture of the codebase</title>
+          <desc id="onion-desc">Concentric layers: the domain at the centre holds Tile, TileGrid, ImagePaths and
+            cloud_pixel_mask; the application layer around it holds the inference pipeline, the grading and two
+            abstract ports; infrastructure outside implements those ports with rasterio, torch and PIL; scripts sit
+            outside as entrypoints. A table on the right pairs each port with its adapter.</desc>
+          <defs>
+            <marker id="aro" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#3987e5"></path>
+            </marker>
+          </defs>
+
+
+          <circle class="o-ring o-r3" cx="268" cy="286" r="228"></circle>
+          <circle class="o-ring o-r2" cx="268" cy="286" r="162"></circle>
+          <circle class="o-ring o-r1" cx="268" cy="286" r="96"></circle>
+
+          <text class="o-ring-label o-l3" x="268" y="80" text-anchor="middle">INFRASTRUCTURE</text>
+          <text class="o-item" x="268" y="98" text-anchor="middle">JP2StackedImage &middot; TorchModelService</text>
+          <text class="o-item" x="268" y="114" text-anchor="middle">MosaicStore &middot; sentinel</text>
+
+          <text class="o-ring-label o-l2" x="268" y="146" text-anchor="middle">APPLICATION</text>
+          <text class="o-item" x="268" y="164" text-anchor="middle">run_inference_pipeline &middot; grade_mosaic</text>
+          <text class="o-item" x="268" y="180" text-anchor="middle">ModelService &middot; StackedImageService (ports)</text>
+
+          <text class="o-ring-label o-l1" x="268" y="254" text-anchor="middle">DOMAIN</text>
+          <text class="o-core" x="268" y="280" text-anchor="middle">Tile &middot; TileGrid</text>
+          <text class="o-core" x="268" y="300" text-anchor="middle">ImagePaths</text>
+          <text class="o-core" x="268" y="320" text-anchor="middle">cloud_pixel_mask</text>
+
+          <text class="o-outside" x="268" y="546" text-anchor="middle">scripts/ &mdash; run_inference &middot; run_year &middot; regrade_mosaics</text>
+
+          <path class="o-arrow" d="M268,528 L268,462" marker-end="url(#aro)"></path>
+          <text class="o-edge" x="284" y="500">wires the adapters</text>
+          <path class="o-arrow d-dash" d="M52,286 L164,286" marker-end="url(#aro)"></path>
+          <path class="o-arrow d-dash" d="M484,286 L372,286" marker-end="url(#aro)"></path>
+          <text class="o-edge" x="268" y="42" text-anchor="middle">dependencies point inward only</text>
+
+          <line class="d-sep" x1="560" y1="86" x2="980" y2="86"></line>
+          <text class="o-th" x="560" y="74">PORT &mdash; application</text>
+          <text class="o-th" x="778" y="74">ADAPTER &mdash; infrastructure</text>
+
+          <text class="o-td" x="560" y="118">ModelService.predict</text>
+          <text class="o-td o-accent" x="778" y="118">TorchModelService &rarr; .pth</text>
+          <line class="d-sep" x1="560" y1="134" x2="980" y2="134"></line>
+
+          <text class="o-td" x="560" y="166">load_and_stack</text>
+          <text class="o-td o-accent" x="778" y="166">JP2StackedImage &rarr; rasterio</text>
+          <line class="d-sep" x1="560" y1="182" x2="980" y2="182"></line>
+
+          <text class="o-td" x="560" y="214">load_cirrus_reflectance</text>
+          <text class="o-td o-accent" x="778" y="214">B10, upsampled to 10 m</text>
+          <line class="d-sep" x1="560" y1="230" x2="980" y2="230"></line>
+
+          <text class="o-td" x="560" y="262">preprocess &middot; save_as_rgb</text>
+          <text class="o-td o-accent" x="778" y="262">stretch, balance, PIL</text>
+          <line class="d-sep" x1="560" y1="278" x2="980" y2="278"></line>
+
+          <text class="o-td" x="560" y="310">mosaic persistence</text>
+          <text class="o-td o-accent" x="778" y="310">MosaicStore &rarr; RGBA PNG</text>
+          <line class="d-sep" x1="560" y1="326" x2="980" y2="326"></line>
+
+          <text class="o-note" x="560" y="368">The pipeline is written against the left column only.</text>
+          <text class="o-note" x="560" y="390">Swap the right one &mdash; ONNX for torch, Zarr for JP2,</text>
+          <text class="o-note" x="560" y="412">object storage for local disk &mdash; and no file in</text>
+          <text class="o-note" x="560" y="434">domain/ or application/ changes.</text>
+          <text class="o-note o-warn" x="560" y="478">Leak: estimate_contamination lives on the adapter,</text>
+          <text class="o-note o-warn" x="560" y="500">not on the port. The entrypoint calls it directly.</text>
+        </svg>
+      </div>
+      <figcaption><span class="fignum">Fig. 3</span> Layers, and the ports that separate them. Every arrow
+        crossing a ring points toward the centre.</figcaption>
+    </figure>
+
+    <h3>What each layer is allowed to know</h3>
+    <div class="table-wrap">
+      <table class="bands layers">
+        <thead><tr><th>Layer</th><th>Holds</th><th>May import</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>domain/</code></td>
+            <td>Tile, TileGrid, ImagePaths, <code>cloud_pixel_mask</code>, checkpoint splitting</td>
+            <td>NumPy, SciPy, scikit-image &mdash; nothing of ours</td>
+          </tr>
+          <tr>
+            <td><code>application/</code></td>
+            <td><code>run_inference_pipeline</code>, contamination score, radiometric alignment, <code>grade_mosaic</code>, the two ports</td>
+            <td><code>domain/</code> only</td>
+          </tr>
+          <tr>
+            <td><code>infrastructure/</code></td>
+            <td>rasterio JP2 reader, torch U-Net, mosaic store, S3 listing and download</td>
+            <td><code>domain/</code> and the ports</td>
+          </tr>
+          <tr>
+            <td><code>scripts/</code></td>
+            <td>entrypoints: choose tile, dates and checkpoint, wire the concrete adapters</td>
+            <td>everything</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout finding">
+      <span class="label">Finding</span>
+      <p>
+        The layering paid for itself three times, always the same way. Going from <b>tile-level to per-pixel selection</b> rewrote <code>run_inference_pipeline</code> and touched not one line of the JP2 reader,
+        the model service or the store. Adding the <b>cirrus veto</b> added one method to a port and one
+        implementation. And <b>re-grading a whole year</b> was possible only because the composited mosaic is
+        a domain object in a store, not a JPEG somewhere: a new script reads the checkpoints, calls an
+        application function, and writes through the same adapter. When the algorithm is the thing you are
+        iterating on, keeping I/O out of it is what makes the iteration cheap.
+      </p>
+    </div>
+
+    <div class="callout caution">
+      <span class="label">Where it leaks</span>
+      <p>
+        <code>estimate_contamination</code> and its remote twin exist on <code>JP2StackedImage</code> but were
+        never declared on <code>StackedImageService</code>, so the entrypoint that ranks dates is talking to a
+        concrete adapter rather than a port &mdash; and <code>main()</code> constructs that adapter itself
+        instead of receiving it. Both are two-line fixes and both are the classic way an onion erodes: not by
+        a bad decision, but by a useful method added where it was easiest to write.
+      </p>
+    </div>
+
+    <p class="aside">
+      The cost is real: five files to add one band, and an abstract service with exactly one implementation.
+      That is over-engineering right up until the second implementation appears &mdash; and here the second
+      implementation is the next satellite. Landsat, SPOT, anything with four bands and a grid: the pipeline
+      above it would not change.
+    </p>
+  </div>
+</section>
+
+<section class="entry handoff">
+  <div class="rail"></div>
+  <div class="body">
+    <a class="next-part back" href="research.html">
+      <span class="np-kicker">Part II</span>
+      <span class="np-title">Research</span>
+      <span class="np-desc">Where the model came from: four training runs, what the masks reveal about what
+        the network actually learned, three attempts at compositing a month, and the failures still visible
+        in the result.</span>
+      <span class="np-go">&larr; Back to Part II</span>
+    </a>
+  </div>
+</section>
+
+<section class="entry handoff">
+  <div class="rail"></div>
+  <div class="body">
+    <a class="next-part back" href="index.html">
+      <span class="np-kicker">Part I</span>
+      <span class="np-title">Results</span>
+      <span class="np-desc">The images themselves: a month against a single pass, a year played frame by
+        frame, and a second tile with nothing retuned.</span>
+      <span class="np-go">&larr; Back to Part I</span>
+    </a>
+  </div>
+</section>
+
+<section class="entry colophon" id="colophon">
+  <div class="rail"></div>
+  <div class="body">
+    <h2>Colophon</h2>
+    <p>
+      Python, PyTorch, rasterio, NumPy, scikit-image, SciPy. Hexagonal layout — domain, application,
+      infrastructure — so the compositor never knows it is reading JPEG2000. Inference runs on CPU: about
+      three minutes per date, so under an hour for a full month of the Paris tile, and it checkpoints as it
+      goes — the mosaic is stored as RGBA, alpha marking which pixels are already settled, so a later run
+      only pays for the holes.
+    </p>
+    <p>
+      That checkpoint is also what made the grading tractable. It holds the composited result, so the white
+      point and the contrast can be changed and judged across all twelve months in a few minutes, instead of
+      the three hours it takes to rebuild them. Every grading decision on this page was made that way.
+    </p>
+    <p class="aside">
+      Figures on this page are downscaled. Full-resolution outputs are 10 980&nbsp;px square and 200–280&nbsp;MB each.
+    </p>
+    <p>
+      <a class="cta" href="https://github.com/tristanGIANDO/satellite">Source on GitHub ↗</a>
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <span>Tristan Giandoriggio</span>
+  <span>Sentinel-2 imagery &copy; Copernicus / ESA</span>
+  <span>38-Cloud dataset &mdash; Mohajerani &amp; Saeedi</span>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" aria-label="Close">&#10005;</button>
+  <img alt="" />
+  <p class="lb-cap"></p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

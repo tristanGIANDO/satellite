@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Satellite &mdash; Cloud-free Sentinel-2</title>
+<meta name="description" content="Removing cloud from any Sentinel-2 tile: a U-Net segments cloud per pixel and a compositor keeps the cleanest observation of each pixel across a month. Results, research log and engineering." />
+<meta name="author" content="Tristan Giandoriggio" />
+<meta property="og:title" content="Satellite &mdash; Cloud-free Sentinel-2" />
+<meta property="og:description" content="A month of passes, composited into one cloud-free image. Drag the sliders, play the year." />
+<meta property="og:image" content="assets/cover_seine_valley.jpg" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html">
+    <img src="assets/logo.png" alt="" width="24" height="24" />
+    <span>satellite</span>
+  </a>
+  <div class="parts" role="navigation" aria-label="Parts">
+    <a class="part current" href="index.html" aria-current="page"><b>I</b> Results</a>
+    <a class="part" href="research.html"><b>II</b> Research</a>
+    <a class="part" href="engineering.html"><b>III</b> Engineering</a>
+  </div>
+  <nav class="tabs" aria-label="Sections">
+    <a href="#paris">Paris</a>
+    <a href="#isere">Is&egrave;re</a>
+    <a href="#montpellier">Montpellier</a>
+    <a href="#france">France</a>
+    <a href="#how">How</a>
+  </nav>
+  <a class="repo" href="https://github.com/tristanGIANDO/satellite">GitHub &#8599;</a>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="hero-media" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <p class="kicker">Part I &middot; Results &middot; Sentinel-2</p>
+    <h1>Tired of bad weather?<br />Learn to delete it.</h1>
+    <p class="lede">
+      Two thirds of the planet is under cloud at any moment, so most of what an optical satellite sends back
+      is weather rather than ground. Every image below is built the same way: a U-Net decides pixel by pixel
+      whether it is looking at cloud, and a compositor keeps, for each pixel, the single cleanest observation
+      of the month. Nothing is generated, inferred or painted in &mdash; every pixel was photographed.
+    </p>
+    <p class="lede">
+      The first three tiles below are the three places I have lived. That is not only sentiment: I know what
+      each of them is supposed to look like, which is the only way I can tell a good result from a plausible
+      one. Between them they break the pipeline in three different directions &mdash; detail, snow, colour.
+      Then the fourth section runs the same pipeline over all 93 tiles of France at once, which breaks it in
+      ways no single tile can.
+    </p>
+    <ul class="stats">
+      <li><b>95.9%</b><span>of a tile recovered</span></li>
+      <li><b>12</b><span>monthly mosaics, 2025</span></li>
+      <li><b>4 / 15</b><span>dates actually downloaded</span></li>
+      <li><b>93</b><span>tiles, all of France</span></li>
+      <li><b>2 args</b><span>to point it anywhere</span></li>
+    </ul>
+    <p class="byline">Tristan Giandoriggio &middot; drag the sliders, play the year</p>
+  </div>
+</section>
+
+<section id="paris" class="entry result">
+  <div class="rail"><span class="num">01</span></div>
+  <div class="body">
+    <h2>Paris &mdash; where the detail has to survive</h2>
+    <p class="claim">
+      I live here, which makes this the tile I cannot lie to myself about. I know what these roofs, parks and
+      bends of the river look like at 10&nbsp;m, so anything the compositor smears, softens or invents is
+      obvious to me before any metric says so.
+    </p>
+
+    <div class="compare"
+         data-before="assets/june_before_clouds.jpg"
+         data-after="assets/mosaic_202506_final.jpg"
+         data-label-before="One pass &middot; 5 June"
+         data-label-after="One month &middot; June 2025">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Tile <code>31UDQ</code>, June 2025. The pass on the left is not a bad
+        one by local standards &mdash; 4% of it is usable ground. The composite on the right is 95.9% ground, and
+        every pixel in it was actually photographed: nothing here is generated, inferred or painted in.
+      </figcaption>
+    </div>
+
+    <p>
+      The real test is underneath. A composite is stitched from several dates, so the risk is not that it
+      still looks cloudy &mdash; it is that it goes soft, or that the joins between dates start showing as
+      edges through the city.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/paris_centre_crop.jpg" alt="Central Paris in the June 2025 mosaic at full resolution: the Arc de Triomphe star, the Bois de Boulogne, the Seine" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 1</span> Central Paris, 13&nbsp;km across, shown at 1:1 &mdash;
+        one screen pixel is one 10&nbsp;m Sentinel-2 pixel, no downscaling. The star at the Arc de Triomphe,
+        the Bois de Boulogne and Longchamp, the Champ de Mars, every bridge over the Seine. Several dates meet
+        inside this crop, and I cannot find the seams.</figcaption>
+    </figure>
+
+    <p>
+      And because this tile has twelve months behind it, the grading can be checked against itself: run the
+      year, and only the season should move.
+    </p>
+
+    <figure class="fig player-fig">
+      <div class="player" id="year-player"
+           data-prefix="assets/year_frame_" data-count="12"
+           data-labels="January,February,March,April,May,June,July,August,September,October,November,December"
+           data-coverage="3.2,85.1,93.6,95.0,94.9,95.3,95.0,94.3,74.1,77.4,60.7,89.0"
+           data-alt="Cloud-free mosaic of central Paris"></div>
+      <figcaption><span class="fignum">Play</span> Tile <code>31UDQ</code>, 2025, 28&nbsp;km across. The
+        percentage is real observed ground for that month &mdash; January and November are weather, not a
+        failure of the method: no clear pixel was ever offered.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="isere" class="entry result">
+  <div class="rail"><span class="num">02</span></div>
+  <div class="body">
+    <h2>Is&egrave;re &mdash; fields, and then mountains</h2>
+    <p class="claim">
+      I lived here, and I chose the tile for what sits in it: the Rh&ocirc;ne corridor's fields, which are the
+      easy half, and the Alps immediately behind them, which are the case I knew the model would not get for
+      free. In visible light, fresh snow and a cumulus tower are the same object &mdash; bright, neutral, and
+      lying on top of everything else.
+    </p>
+
+    <div class="compare"
+         data-before="assets/pass_31TFL_2026-03-12.jpg"
+         data-after="assets/mosaic_31TFL_202603.jpg"
+         data-label-before="One pass &middot; 12 March"
+         data-label-after="One month &middot; March 2026">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Tile <code>31TFL</code>, March 2026, 14 passes. The day on the left is
+        30.2% usable &mdash; broken cumulus over the corridor, and the haze that comes with them. On the right,
+        94.6% of the scene taken from a pixel the model called clear, plus 1.3% rescued from its least
+        contaminated look: the Rh&ocirc;ne and the Sa&ocirc;ne meeting at Lyon, the Alps still under snow.
+      </figcaption>
+    </div>
+
+    <p>
+      Two arguments changed to get here &mdash; the tile code and the date range. No threshold was touched, no
+      model retrained, no reference image chosen for the region. What changes is the weather it is handed, and
+      that is legible in the masks: one pixel, one probability, white for cloud.
+    </p>
+
+    <div class="mask-grid">
+      <figure class="fig">
+        <img src="assets/pass_31TFL_2026-03-12.jpg" alt="Sentinel-2 pass over Lyon on 12 March 2026, scattered cumulus" loading="lazy" />
+        <figcaption><span class="fignum">12 March</span> The pass &mdash; broken cumulus in rows.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/mask_31TFL_2026-03-12.jpg" alt="Cloud probability map for 12 March 2026, the cumulus picked out as white blobs on black" loading="lazy" />
+        <figcaption><span class="fignum">12 March</span> Its mask &mdash; 30.2% of the scene survives as usable ground.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="assets/pass_31TFL_2026-03-22.jpg" alt="Sentinel-2 pass over Lyon on 22 March 2026, near-total overcast" loading="lazy" />
+        <figcaption><span class="fignum">22 March</span> The pass &mdash; a front sitting on the whole tile.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/mask_31TFL_2026-03-22.jpg" alt="Cloud probability map for 22 March 2026, almost entirely white" loading="lazy" />
+        <figcaption><span class="fignum">22 March</span> Its mask &mdash; 0.2% usable. The date is downloaded, predicted, and contributes nothing.</figcaption>
+      </figure>
+    </div>
+    <p class="caption-note">
+      White is cloud probability near 1. The faint 256&nbsp;px grid on 22 March is the tiling the model runs
+      in, showing through where the whole scene is cloud and there is no contrast to anchor it.
+    </p>
+
+    <p>
+      And the half I came for: 17&nbsp;March, the clearest day of the month at 90.0% usable, with no weather
+      over the mountains at all &mdash; so whatever the mask finds up there is not cloud.
+    </p>
+
+    <div class="mask-grid">
+      <figure class="fig">
+        <img src="assets/alps_pass_2026-03-17.jpg" alt="The snow-covered Alpine ridges of tile 31TFL on 17 March 2026, cloud-free" loading="lazy" />
+        <figcaption><span class="fignum">17 March</span> The Alpine corner of the tile, 26&nbsp;km across, cloud-free.</figcaption>
+      </figure>
+      <figure class="fig mask">
+        <img src="assets/alps_mask_2026-03-17_boost.jpg" alt="The same corner as cloud probability, gamma-boosted: the snowfields glow" loading="lazy" />
+        <figcaption><span class="fignum">17 March</span> The same corner as cloud probability, gamma raised
+          to 3 so a low response shows at all. It is drawing the snow: mean probability 0.13 over the
+          snowfields against 0.006 over the fields below, almost all of it under the threshold. The Alps stay
+          in the mosaic.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="montpellier" class="entry result">
+  <div class="rail"><span class="num">03</span></div>
+  <div class="body">
+    <h2>Montpellier &mdash; nothing to remove, everything to calibrate</h2>
+    <p class="claim">
+      I lived here too, and the sun is the point: the model finds almost no cloud to remove, so what is left on
+      screen is the colour. Open sea, the &Eacute;tang de Thau, limestone and old tile roofs, irrigated fields
+      and the C&eacute;vennes behind &mdash; nearly the whole range the grading has to hold, in one frame.
+    </p>
+
+    <div class="compare"
+         data-before="assets/mosaic_31TEJ_202506.jpg"
+         data-after="assets/mosaic_31TEJ_202603.jpg"
+         data-label-before="June 2025"
+         data-label-after="March 2026">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Tile <code>31TEJ</code>, the same 110&nbsp;km of ground twice, nine
+        months apart. Both sides are cloud-free composites, so the season is the only thing that should
+        separate them; what separates them first is the calibration &mdash; orbit seams and a magenta cast on
+        the left, one continuous scene on the right, sea, salt and garrigue all sitting where they should.
+      </figcaption>
+    </div>
+
+    <figure class="fig">
+      <img src="assets/thau_sete_crop.jpg" alt="The Etang de Thau, Sete and the coast in the March 2026 mosaic" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 2</span> The &Eacute;tang de Thau, S&egrave;te and the lidos, with
+        Montpellier top right, 34&nbsp;km across. The shellfish tables rule the lagoon into squares, the
+        Palavas ponds come out turquoise against the Mediterranean, and the coastline is exact.</figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<section id="france" class="entry result">
+  <div class="rail"><span class="num">04</span></div>
+  <div class="body">
+    <h2>France &mdash; the whole country, in one frame</h2>
+    <p class="claim">
+      Three tiles prove the compositor works. Ninety-three ask a different question: does any of it survive
+      being scaled up? A country is not a big tile. It spans three UTM zones, so the tiles do not even share a
+      projection; it holds sea, snow, cereal plains and Mediterranean rock in one histogram, so nothing
+      calibrated on a single scene generalises; and at some point every shortcut that was invisible at
+      110&nbsp;km becomes a visible square.
+    </p>
+
+    <div class="compare"
+         data-before="assets/france_202607_raw.jpg"
+         data-after="assets/france_202607_final.jpg"
+         data-label-before="One pass &middot; untouched"
+         data-label-after="One month &middot; July 2026">
+      <figcaption class="compare-cap">
+        <span class="fignum">Drag</span> Metropolitan France and Corsica, July 2026, 1&nbsp;268&nbsp;&times;
+        1&nbsp;199&nbsp;km at 50&nbsp;m. The left is what the satellite actually sends: one pass per tile taken
+        as it comes, top-of-atmosphere reflectance on a plain linear scale, no cloud mask, no haze subtraction,
+        no white point, no matching between tiles. The right is the same 93&nbsp;tiles after the pipeline. The
+        cloud over Brittany, the Channel and the south-west on the left is not unusual weather &mdash; it is
+        July.
+      </figcaption>
+    </div>
+
+    <p>
+      Scaling up broke three things, and each one was worth more than the fix. Dates were being chosen by
+      their position in the month with no regard for whether the pass held any ground, so tiles near an orbit
+      edge came out 13% filled from three cloud-free dates &mdash; nothing wrong with the weather or the
+      model, simply no landscape in the scenes picked. Exposure and white point were being set per tile, on
+      93 different histograms, which is how a country ends up looking like 93 photographs. And a pixel was
+      counted as data if <em>any</em> band covered it, so the fringe along each swath edge poisoned the black
+      point: on one partial scene the blue black point came out at 0.003 instead of 0.166, and the whole swath
+      rendered electric blue.
+    </p>
+
+    <p>
+      What survived all three fixes was a chequerboard. Every tile is composited from its own dates, each
+      date's haze measured and subtracted from that date's own dark pixels, and what remains differs
+      <em>across</em> a tile as well as between tiles. One gain and one offset per tile &mdash; which is all
+      the colour matching fits &mdash; describes the average and leaves the rest on screen. So the correction
+      was allowed to vary: a smooth field per tile, all 93 solved together, minimising disagreement where
+      tiles share ground plus a Laplacian smoothness term. That is the prior Poisson blending imposes, applied
+      to the <em>correction</em> rather than the image, which is what makes it affordable &mdash; 109&nbsp;211
+      unknowns on a 3&nbsp;km grid rather than 600&nbsp;million pixels, solved in 17&nbsp;seconds.
+    </p>
+
+    <figure class="fig">
+      <img src="assets/france_202607_final.jpg" alt="The finished July 2026 mosaic of France, 93 Sentinel-2 tiles composited and blended in Lambert-93" loading="lazy" />
+      <figcaption><span class="fignum">Fig. 3</span> The finished mosaic, in Lambert-93 at 50&nbsp;m &mdash;
+        25&nbsp;368&nbsp;&times;&nbsp;23&nbsp;988&nbsp;px. Two things are still wrong and both are visible
+        here. The pale diagonal bands through the centre-west are not tile joins: they are swath edges
+        <em>inside</em> a tile, where a hazy date meets a clear one, which is the same problem one level down
+        and not yet fixed. And the sea comes out violet and banded, because offshore there is almost no signal
+        for the exposure to normalise and it amplifies noise and Sentinel-2's detector modules instead.
+      </figcaption>
+    </figure>
+
+    <p class="aside">
+      Nothing here was downloaded at full resolution. A 50&nbsp;m output keeps one Sentinel-2 pixel in
+      twenty-five, so the scenes were read from the reduced-resolution copies stored inside each JPEG&nbsp;2000
+      file, over HTTP range requests &mdash; 20&nbsp;GB instead of 125, and hours instead of a day.
+    </p>
+
+  </div>
+</section>
+
+<section id="how" class="entry">
+  <div class="rail"><span class="num">05</span></div>
+  <div class="body">
+    <h2>How it works, in four lines</h2>
+    <ol class="steps">
+      <li><b>Rank before downloading.</b> Every candidate date is scored while still on the server, and only
+        the four cleanest of a month are pulled.</li>
+      <li><b>Segment.</b> A four-channel U-Net &mdash; red, green, blue, near-infrared &mdash; gives every
+        pixel a cloud probability.</li>
+      <li><b>Veto.</b> The model's call is backed by the cirrus band, a minimum blob size, a dilation for soft
+        edges, and a shadow test.</li>
+      <li><b>Composite.</b> Among the clean looks at a pixel, the least atmospherically contaminated one
+        wins; each new date is colour-matched to the mosaic already in place.</li>
+    </ol>
+    <p class="aside">
+      Figures on this page are downscaled. Full-resolution outputs are 10&nbsp;980&nbsp;px square and
+      200&ndash;280&nbsp;MB each.
+    </p>
+  </div>
+</section>
+
+<section class="entry handoff">
+  <div class="rail"></div>
+  <div class="body">
+    <a class="next-part" href="research.html">
+      <span class="np-kicker">Part II</span>
+      <span class="np-title">Research</span>
+      <span class="np-desc">How the model got there: four training runs, what the predicted masks reveal about what the network actually learned, three attempts at compositing a month, and the failures still visible in the result.</span>
+      <span class="np-go">Read Part II &rarr;</span>
+    </a>
+  </div>
+</section>
+
+<section class="entry handoff">
+  <div class="rail"></div>
+  <div class="body">
+    <a class="next-part" href="engineering.html">
+      <span class="np-kicker">Part III</span>
+      <span class="np-title">Engineering</span>
+      <span class="np-desc">What makes it runnable twice: ranking scenes over HTTP range requests, idempotent ingest, resumable checkpoints, grading decoupled from compositing, hardware profiling, and the onion-layered codebase.</span>
+      <span class="np-go">Read Part III &rarr;</span>
+    </a>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <span>Tristan Giandoriggio</span>
+  <span>Sentinel-2 imagery &copy; Copernicus / ESA</span>
+  <span>38-Cloud dataset &mdash; Mohajerani &amp; Saeedi</span>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" aria-label="Close">&#10005;</button>
+  <img alt="" />
+  <p class="lb-cap"></p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
